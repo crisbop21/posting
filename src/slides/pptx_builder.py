@@ -86,27 +86,28 @@ def build_pptx(
         indicator_tf.word_wrap = True
         indicator_p = indicator_tf.paragraphs[0]
         indicator_p.text = f"{idx + 1}/{len(slides)}"
-        indicator_p.font.size = Pt(14)
+        indicator_p.font.size = Pt(24)
         indicator_p.font.color.rgb = accent_color
         indicator_p.font.bold = True
 
-        # Title
+        # Title — 80-120pt bold, instantly scannable (2:1 ratio vs body)
         title_top = Inches(1.2)
-        title_height = Inches(2.5)
+        title_height = Inches(4.0)
         title_box = slide.shapes.add_textbox(
             margin, title_top, slide_w - 2 * margin, title_height
         )
         title_tf = title_box.text_frame
         title_tf.word_wrap = True
+        title_tf.auto_size = None
         title_p = title_tf.paragraphs[0]
         title_p.text = slide_data.get("title", "")
-        title_p.font.size = Pt(36)
+        title_p.font.size = Pt(96)
         title_p.font.bold = True
         title_p.font.color.rgb = title_color
         title_p.alignment = PP_ALIGN.LEFT
 
-        # Body
-        body_top = title_top + title_height + Inches(0.3)
+        # Body — 40-60pt, short phrases not sentences
+        body_top = title_top + title_height + Inches(0.4)
         body_height = Inches(4.0)
         body_box = slide.shapes.add_textbox(
             margin, body_top, slide_w - 2 * margin, body_height
@@ -116,21 +117,21 @@ def build_pptx(
         body_tf.auto_size = None
         body_p = body_tf.paragraphs[0]
         body_p.text = slide_data.get("body", "")
-        body_p.font.size = Pt(22)
+        body_p.font.size = Pt(48)
         body_p.font.color.rgb = body_color
         body_p.alignment = PP_ALIGN.LEFT
-        body_p.space_after = Pt(12)
+        body_p.space_after = Pt(16)
 
-        # Footer
-        footer_top = slide_h - Inches(1.2)
+        # Footer — supporting detail 28-36pt, use sparingly
+        footer_top = slide_h - Inches(1.4)
         footer_box = slide.shapes.add_textbox(
-            margin, footer_top, slide_w - 2 * margin, Inches(0.6)
+            margin, footer_top, slide_w - 2 * margin, Inches(0.8)
         )
         footer_tf = footer_box.text_frame
         footer_tf.word_wrap = True
         footer_p = footer_tf.paragraphs[0]
         footer_p.text = slide_data.get("footer", "")
-        footer_p.font.size = Pt(12)
+        footer_p.font.size = Pt(30)
         footer_p.font.color.rgb = accent_color
         footer_p.font.italic = True
         footer_p.alignment = PP_ALIGN.LEFT
