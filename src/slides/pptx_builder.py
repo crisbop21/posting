@@ -36,11 +36,9 @@ def build_pptx(
 
     # Set slide dimensions based on aspect ratio
     if aspect_ratio == "9:16":
-        # Vertical slides (1080x1920 at 96 DPI equivalent)
         prs.slide_width = Inches(7.5)
         prs.slide_height = Inches(13.33)
     else:
-        # Standard 16:9
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
 
@@ -52,47 +50,68 @@ def build_pptx(
 
     slide_w = prs.slide_width
     slide_h = prs.slide_height
-    margin = Inches(0.6)
+    margin = Inches(0.8)
+
+    # Left accent bar width (consultant-style vertical bar)
+    accent_bar_w = Inches(0.12)
 
     for idx, slide_data in enumerate(slides):
         slide_layout = prs.slide_layouts[6]  # Blank layout
         slide = prs.slides.add_slide(slide_layout)
 
-        # Set background color
+        # -- Background --
         background = slide.background
         fill = background.fill
         fill.solid()
         fill.fore_color.rgb = bg_color
 
-        # Accent bar at top
-        bar_height = Inches(0.08)
-        bar = slide.shapes.add_shape(
+        # -- Left accent bar (consultant-style vertical stripe) --
+        bar_color = accent_color if idx % 2 == 0 else highlight_color
+        left_bar = slide.shapes.add_shape(
             1,  # Rectangle
             0,
             0,
-            slide_w,
-            bar_height,
+            accent_bar_w,
+            slide_h,
         )
-        bar.fill.solid()
-        bar.fill.fore_color.rgb = accent_color if idx % 2 == 0 else highlight_color
-        bar.line.fill.background()
+        left_bar.fill.solid()
+        left_bar.fill.fore_color.rgb = bar_color
+        left_bar.line.fill.background()
 
-        # Slide number indicator
-        indicator_top = Inches(0.4)
+        # -- Slide number (top-right, clean consultant format) --
+        indicator_w = Inches(1.5)
         indicator_box = slide.shapes.add_textbox(
-            margin, indicator_top, Inches(2), Inches(0.4)
+            slide_w - margin - indicator_w,
+            Inches(0.5),
+            indicator_w,
+            Inches(0.4),
         )
         indicator_tf = indicator_box.text_frame
         indicator_tf.word_wrap = True
         indicator_p = indicator_tf.paragraphs[0]
-        indicator_p.text = f"{idx + 1}/{len(slides)}"
-        indicator_p.font.size = Pt(24)
+        indicator_p.text = f"{idx + 1} / {len(slides)}"
+        indicator_p.font.size = Pt(18)
+        indicator_p.font.name = "Calibri"
         indicator_p.font.color.rgb = accent_color
-        indicator_p.font.bold = True
+        indicator_p.font.bold = False
+        indicator_p.alignment = PP_ALIGN.RIGHT
 
-        # Title — 80-120pt bold, instantly scannable (2:1 ratio vs body)
-        title_top = Inches(1.2)
-        title_height = Inches(4.0)
+        # -- Thin horizontal rule under slide number --
+        rule_top = Inches(1.05)
+        rule = slide.shapes.add_shape(
+            1,  # Rectangle
+            margin,
+            rule_top,
+            slide_w - 2 * margin,
+            Inches(0.02),
+        )
+        rule.fill.solid()
+        rule.fill.fore_color.rgb = accent_color
+        rule.line.fill.background()
+
+        # -- Title: Calibri Bold 45pt --
+        title_top = Inches(1.4)
+        title_height = Inches(3.5)
         title_box = slide.shapes.add_textbox(
             margin, title_top, slide_w - 2 * margin, title_height
         )
@@ -101,13 +120,15 @@ def build_pptx(
         title_tf.auto_size = None
         title_p = title_tf.paragraphs[0]
         title_p.text = slide_data.get("title", "")
-        title_p.font.size = Pt(96)
+        title_p.font.size = Pt(45)
+        title_p.font.name = "Calibri"
         title_p.font.bold = True
         title_p.font.color.rgb = title_color
         title_p.alignment = PP_ALIGN.LEFT
+        title_p.space_after = Pt(12)
 
-        # Body — 40-60pt, short phrases not sentences
-        body_top = title_top + title_height + Inches(0.4)
+        # -- Body: Times New Roman 35pt --
+        body_top = title_top + title_height + Inches(0.5)
         body_height = Inches(4.0)
         body_box = slide.shapes.add_textbox(
             margin, body_top, slide_w - 2 * margin, body_height
@@ -117,24 +138,39 @@ def build_pptx(
         body_tf.auto_size = None
         body_p = body_tf.paragraphs[0]
         body_p.text = slide_data.get("body", "")
-        body_p.font.size = Pt(48)
+        body_p.font.size = Pt(35)
+        body_p.font.name = "Times New Roman"
         body_p.font.color.rgb = body_color
         body_p.alignment = PP_ALIGN.LEFT
         body_p.space_after = Pt(16)
+        body_p.line_spacing = Pt(44)
 
-        # Footer — supporting detail 28-36pt, use sparingly
-        footer_top = slide_h - Inches(1.4)
+        # -- Footer: Calibri Italic 22pt, anchored at bottom --
+        footer_top = slide_h - Inches(1.2)
         footer_box = slide.shapes.add_textbox(
-            margin, footer_top, slide_w - 2 * margin, Inches(0.8)
+            margin, footer_top, slide_w - 2 * margin, Inches(0.6)
         )
         footer_tf = footer_box.text_frame
         footer_tf.word_wrap = True
         footer_p = footer_tf.paragraphs[0]
         footer_p.text = slide_data.get("footer", "")
-        footer_p.font.size = Pt(30)
+        footer_p.font.size = Pt(22)
+        footer_p.font.name = "Calibri"
         footer_p.font.color.rgb = accent_color
         footer_p.font.italic = True
         footer_p.alignment = PP_ALIGN.LEFT
+
+        # -- Bottom accent line --
+        bottom_rule = slide.shapes.add_shape(
+            1,
+            0,
+            slide_h - Inches(0.08),
+            slide_w,
+            Inches(0.08),
+        )
+        bottom_rule.fill.solid()
+        bottom_rule.fill.fore_color.rgb = bar_color
+        bottom_rule.line.fill.background()
 
     # Save
     os.makedirs(output_dir, exist_ok=True)

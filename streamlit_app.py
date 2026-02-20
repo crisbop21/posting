@@ -13,6 +13,7 @@ from src.content.generator import (
     generate_hooks,
     generate_slide_content,
     fact_check_slides,
+    fact_check_news,
     generate_tiktok_metadata,
 )
 from src.content.reviewer import review_and_improve
@@ -180,13 +181,32 @@ if st.session_state.step == 1:
     if st.button("Research Topics", type="primary", use_container_width=True):
         _require_api_key()
 
-        with st.spinner("Fetching latest trends..."):
+        with st.spinner("Fetching latest trends (last 48 hours only)..."):
             research_parts = []
 
             if "news" in sources:
                 news_items = fetch_news_topics(topics)
-                research_parts.append(format_news_for_prompt(news_items))
-                st.toast(f"Found {len(news_items)} news articles")
+                if news_items:
+                    raw_news = format_news_for_prompt(news_items)
+                    st.toast(f"Found {len(news_items)} recent articles — fact-checking...")
+
+                    # Fact-check news before using it
+                    fc_result = fact_check_news(raw_news)
+                    verified_news = fc_result.get("verified_news", raw_news)
+                    fc_articles = fc_result.get("articles", [])
+                    flagged = [a for a in fc_articles if a.get("status") == "flagged"]
+
+                    if flagged:
+                        st.toast(
+                            f"Removed {len(flagged)} flagged article(s) — "
+                            f"keeping {len(fc_articles) - len(flagged)} verified"
+                        )
+                    else:
+                        st.toast(f"All {len(fc_articles)} articles verified")
+
+                    research_parts.append(verified_news)
+                else:
+                    st.toast("No news articles found in the last 48 hours")
 
             if "reddit" in sources:
                 reddit_posts = fetch_reddit_topics(subreddits)

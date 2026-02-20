@@ -68,6 +68,50 @@ Slide structure:
 """
 
 
+def fact_check_news(news_text: str) -> dict:
+    """Fact-check news articles and flag any that seem inaccurate or outdated.
+
+    Returns a dict with:
+        - "verified_news": cleaned news text with only verified articles
+        - "report": list of per-article verdicts
+    """
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a rigorous financial news fact-checker. Review each news article below
+and determine if it appears factually accurate and genuinely recent.
+
+{news_text}
+
+For EACH article:
+1. Check if the headline and summary are consistent (no clickbait mismatch).
+2. Check if any specific claims (numbers, %, $, company names, events) seem plausible.
+3. Flag anything that looks like misinformation, outdated recycled news, or AI-generated spam.
+
+Return your response as JSON:
+{{
+  "articles": [
+    {{
+      "index": 1,
+      "title": "original title",
+      "status": "verified" or "flagged",
+      "reason": "brief explanation"
+    }}
+  ],
+  "verified_news": "reformatted text containing ONLY the verified articles, numbered sequentially, in the same format as the input"
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
 def suggest_topics(research_text: str, audience: str) -> list[dict]:
     """Analyse research data and return 10 potential topic ideas."""
     client = anthropic.Anthropic()
