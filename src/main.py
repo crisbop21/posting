@@ -8,7 +8,7 @@ import yaml
 
 from src.research.news import fetch_news_topics, format_news_for_prompt
 from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
-from src.content.generator import generate_slide_content
+from src.content.generator import suggest_topics, generate_hooks, generate_slide_content
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 
@@ -64,10 +64,40 @@ def run(config_path: str = "config.yaml") -> None:
         print("No research data found. Check your network connection and config.")
         sys.exit(1)
 
-    # ── Step 2: Generate slide content ────────────────────────────────
-    print(f"\nStep 2: Generating {slide_count} slides with Claude...")
+    # ── Step 2: Suggest topics ────────────────────────────────────────
+    print("\nStep 2: Suggesting topics...")
+    topic_options = suggest_topics(research_text, audience)
+    for i, t in enumerate(topic_options, 1):
+        print(f"  {i}. {t['title']} — {t['description']}")
+
+    # Auto-pick the first topic in CLI mode
+    chosen_topic = topic_options[0]
+    print(f"\n  Auto-selected: {chosen_topic['title']}")
+
+    # Use a generic angle for CLI mode
+    angle = "Provide actionable insights with real data points"
+
+    # ── Step 3: Generate hooks ─────────────────────────────────────────
+    print("\nStep 3: Generating hooks...")
+    hook_options = generate_hooks(
+        topic=chosen_topic["title"],
+        angle=angle,
+        tone=tone,
+        audience=audience,
+    )
+    for i, h in enumerate(hook_options, 1):
+        print(f"  {i}. [{h['style']}] {h['hook']}")
+
+    # Auto-pick the first hook
+    chosen_hook = hook_options[0]
+    print(f"\n  Auto-selected: {chosen_hook['hook']}")
+
+    # ── Step 4: Generate slide content ─────────────────────────────────
+    print(f"\nStep 4: Generating {slide_count} slides with Claude...")
     slides = generate_slide_content(
-        research_text=research_text,
+        topic=chosen_topic["title"],
+        angle=angle,
+        hook=chosen_hook["hook"],
         slide_count=slide_count,
         tone=tone,
         audience=audience,
@@ -75,8 +105,8 @@ def run(config_path: str = "config.yaml") -> None:
     )
     print(f"  Generated {len(slides)} slides.")
 
-    # ── Step 3: Review and improve engagement ─────────────────────────
-    print(f"\nStep 3: Reviewing engagement ({review_iterations} iterations)...")
+    # ── Step 5: Review and improve engagement ─────────────────────────
+    print(f"\nStep 5: Reviewing engagement ({review_iterations} iterations)...")
     slides = review_and_improve(
         slides=slides,
         tone=tone,
@@ -85,8 +115,8 @@ def run(config_path: str = "config.yaml") -> None:
     )
     print("  Review complete.")
 
-    # ── Step 4: Build PPTX ────────────────────────────────────────────
-    print("\nStep 4: Building PPTX...")
+    # ── Step 6: Build PPTX ────────────────────────────────────────────
+    print("\nStep 6: Building PPTX...")
     filepath = build_pptx(
         slides=slides,
         colors=colors,

@@ -1,6 +1,5 @@
-"""Streamlit UI for the finance slide generator."""
+"""Streamlit UI for the finance slide generator — guided 4-step workflow."""
 
-import io
 import os
 
 import streamlit as st
@@ -8,7 +7,7 @@ import yaml
 
 from src.research.news import fetch_news_topics, format_news_for_prompt
 from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
-from src.content.generator import generate_slide_content
+from src.content.generator import suggest_topics, generate_hooks, generate_slide_content
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 
@@ -27,7 +26,6 @@ st.caption("Generate trending finance slide decks for TikTok & Instagram")
 
 st.sidebar.header("Settings")
 
-# API key — prefer env var, allow override in sidebar
 api_key = st.sidebar.text_input(
     "Anthropic API Key",
     value=os.environ.get("ANTHROPIC_API_KEY", ""),
@@ -95,89 +93,254 @@ style_notes = st.sidebar.text_area(
     height=100,
 )
 
-# ── Main area: Generate ───────────────────────────────────────────────────────
+# ── Helper: ensure API key is set ─────────────────────────────────────────────
 
-if st.button("Generate Slides", type="primary", use_container_width=True):
+def _require_api_key():
     if not api_key:
         st.error("Please provide an Anthropic API key in the sidebar.")
         st.stop()
-
-    # Set the key for the Anthropic client
     os.environ["ANTHROPIC_API_KEY"] = api_key
 
-    colors = {
-        "background": bg_color,
-        "title": title_color,
-        "body": body_color,
-        "accent": accent_color,
-        "highlight": highlight_color,
-    }
 
-    progress = st.progress(0, text="Starting...")
+# ── Session state defaults ────────────────────────────────────────────────────
 
-    # Step 1: Research
-    progress.progress(10, text="Step 1/4 — Researching trending topics...")
-    research_parts = []
+for key, default in {
+    "step": 1,
+    "research_text": "",
+    "topic_options": [],
+    "selected_topic": None,
+    "angle": "",
+    "hook_options": [],
+    "selected_hook": None,
+    "slides": [],
+    "pptx_path": None,
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
-    if "news" in sources:
-        with st.spinner("Fetching news feeds..."):
-            news_items = fetch_news_topics(topics)
-            research_parts.append(format_news_for_prompt(news_items))
-            st.toast(f"Found {len(news_items)} news articles")
+# ── Step indicators ───────────────────────────────────────────────────────────
 
-    if "reddit" in sources:
-        with st.spinner("Fetching Reddit discussions..."):
-            reddit_posts = fetch_reddit_topics(subreddits)
-            research_parts.append(format_reddit_for_prompt(reddit_posts))
-            st.toast(f"Found {len(reddit_posts)} Reddit posts")
+step_labels = [
+    "1. Pick a Topic",
+    "2. Define Your Angle",
+    "3. Choose a Hook",
+    "4. Generate Slides",
+]
 
-    research_text = "\n\n".join(research_parts)
-    empty_markers = {"No news articles found.", "No Reddit posts found."}
+current = st.session_state.step
+cols = st.columns(len(step_labels))
+for i, label in enumerate(step_labels):
+    step_num = i + 1
+    if step_num < current:
+        cols[i].success(label)
+    elif step_num == current:
+        cols[i].info(label)
+    else:
+        cols[i].markdown(f"<span style='color:grey'>{label}</span>", unsafe_allow_html=True)
 
-    if not research_parts or all(p.strip() in empty_markers for p in research_parts):
-        st.error("No research data found. Check your network connection and config.")
-        st.stop()
+st.divider()
 
-    # Step 2: Generate
-    progress.progress(30, text="Step 2/4 — Generating slides with Claude...")
-    with st.spinner("Claude is writing your slides..."):
-        slides = generate_slide_content(
-            research_text=research_text,
-            slide_count=slide_count,
-            tone=tone,
-            audience=audience,
-            style_notes=style_notes,
+# ── Restart button ────────────────────────────────────────────────────────────
+
+if st.session_state.step > 1:
+    if st.button("Start Over"):
+        for key in ["step", "research_text", "topic_options", "selected_topic",
+                     "angle", "hook_options", "selected_hook", "slides", "pptx_path"]:
+            del st.session_state[key]
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 1 — Research & Pick a Topic
+# ══════════════════════════════════════════════════════════════════════════════
+
+if st.session_state.step == 1:
+    st.header("Step 1: Pick a Topic")
+    st.write("We'll research the latest trends and suggest 10 topics for your slide deck.")
+
+    if st.button("Research Topics", type="primary", use_container_width=True):
+        _require_api_key()
+
+        with st.spinner("Fetching latest trends..."):
+            research_parts = []
+
+            if "news" in sources:
+                news_items = fetch_news_topics(topics)
+                research_parts.append(format_news_for_prompt(news_items))
+                st.toast(f"Found {len(news_items)} news articles")
+
+            if "reddit" in sources:
+                reddit_posts = fetch_reddit_topics(subreddits)
+                research_parts.append(format_reddit_for_prompt(reddit_posts))
+                st.toast(f"Found {len(reddit_posts)} Reddit posts")
+
+            research_text = "\n\n".join(research_parts)
+            empty_markers = {"No news articles found.", "No Reddit posts found."}
+
+            if not research_parts or all(p.strip() in empty_markers for p in research_parts):
+                st.error("No research data found. Check your network connection and config.")
+                st.stop()
+
+            st.session_state.research_text = research_text
+
+        with st.spinner("Generating topic suggestions with Claude..."):
+            topic_options = suggest_topics(research_text, audience)
+            st.session_state.topic_options = topic_options
+
+        st.rerun()
+
+    # Show topic dropdown if we have options
+    if st.session_state.topic_options:
+        topic_options = st.session_state.topic_options
+        labels = [f"{t['title']} — {t['description']}" for t in topic_options]
+
+        selected_idx = st.selectbox(
+            "Select a topic for your deck",
+            range(len(labels)),
+            format_func=lambda i: labels[i],
         )
 
-    # Step 3: Review
-    if review_iterations > 0:
-        progress.progress(55, text="Step 3/4 — Reviewing and improving engagement...")
-        with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-            slides = review_and_improve(
-                slides=slides,
-                tone=tone,
-                audience=audience,
-                iterations=review_iterations,
-            )
-    else:
-        progress.progress(55, text="Step 3/4 — Skipping review (0 iterations)")
+        if st.button("Use This Topic", type="primary"):
+            chosen = topic_options[selected_idx]
+            st.session_state.selected_topic = chosen
+            st.session_state.step = 2
+            st.rerun()
 
-    # Step 4: Build PPTX
-    progress.progress(85, text="Step 4/4 — Building PPTX...")
-    filepath = build_pptx(
-        slides=slides,
-        colors=colors,
-        aspect_ratio=aspect_ratio_val,
-        output_dir="./output",
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 2 — Define Your Angle
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 2:
+    st.header("Step 2: Define Your Angle")
+    topic = st.session_state.selected_topic
+    st.info(f"**Topic:** {topic['title']}  \n{topic['description']}")
+
+    angle = st.text_area(
+        "What angle or specific information do you want to provide?",
+        placeholder="e.g. 'Focus on how beginners can take advantage of this trend, include 3 actionable steps'",
+        height=120,
     )
 
-    progress.progress(100, text="Done!")
+    if st.button("Continue", type="primary", disabled=not angle.strip()):
+        st.session_state.angle = angle.strip()
+        st.session_state.step = 3
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 3 — Choose a Hook
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 3:
+    st.header("Step 3: Choose a Hook")
+    topic = st.session_state.selected_topic
+    angle = st.session_state.angle
+
+    st.info(f"**Topic:** {topic['title']}  \n**Angle:** {angle}")
+
+    # Generate hooks if we don't have them yet
+    if not st.session_state.hook_options:
+        _require_api_key()
+        with st.spinner("Generating 10 hook options with Claude..."):
+            hooks = generate_hooks(
+                topic=topic["title"],
+                angle=angle,
+                tone=tone,
+                audience=audience,
+            )
+            st.session_state.hook_options = hooks
+            st.rerun()
+
+    hooks = st.session_state.hook_options
+    hook_labels = [f"[{h['style']}] {h['hook']}" for h in hooks]
+
+    selected_hook_idx = st.radio(
+        "Pick the hook for your opening slide",
+        range(len(hook_labels)),
+        format_func=lambda i: hook_labels[i],
+    )
+
+    col_back, col_next = st.columns(2)
+    if col_back.button("Back"):
+        st.session_state.hook_options = []
+        st.session_state.step = 2
+        st.rerun()
+
+    if col_next.button("Generate Slides", type="primary"):
+        st.session_state.selected_hook = hooks[selected_hook_idx]
+        st.session_state.step = 4
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4 — Generate & Download Slides
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 4:
+    st.header("Step 4: Your Slides")
+    topic = st.session_state.selected_topic
+    angle = st.session_state.angle
+    hook = st.session_state.selected_hook
+
+    st.info(
+        f"**Topic:** {topic['title']}  \n"
+        f"**Angle:** {angle}  \n"
+        f"**Hook:** {hook['hook']}"
+    )
+
+    # Generate slides if we haven't yet
+    if not st.session_state.slides:
+        _require_api_key()
+
+        colors = {
+            "background": bg_color,
+            "title": title_color,
+            "body": body_color,
+            "accent": accent_color,
+            "highlight": highlight_color,
+        }
+
+        progress = st.progress(0, text="Generating slides...")
+
+        with st.spinner("Claude is writing your slides..."):
+            progress.progress(20, text="Generating slides with Claude...")
+            slides = generate_slide_content(
+                topic=topic["title"],
+                angle=angle,
+                hook=hook["hook"],
+                slide_count=slide_count,
+                tone=tone,
+                audience=audience,
+                style_notes=style_notes,
+            )
+
+        if review_iterations > 0:
+            with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
+                progress.progress(50, text="Reviewing and improving...")
+                slides = review_and_improve(
+                    slides=slides,
+                    tone=tone,
+                    audience=audience,
+                    iterations=review_iterations,
+                )
+
+        progress.progress(80, text="Building PPTX...")
+        filepath = build_pptx(
+            slides=slides,
+            colors=colors,
+            aspect_ratio=aspect_ratio_val,
+            output_dir="./output",
+        )
+
+        progress.progress(100, text="Done!")
+
+        st.session_state.slides = slides
+        st.session_state.pptx_path = filepath
+        st.rerun()
 
     # ── Results ────────────────────────────────────────────────────────────
+    slides = st.session_state.slides
+    filepath = st.session_state.pptx_path
 
     st.success(f"Generated {len(slides)} slides!")
 
-    # Slide preview
     st.subheader("Slide Preview")
     for i, slide in enumerate(slides):
         with st.container(border=True):
@@ -187,7 +350,6 @@ if st.button("Generate Slides", type="primary", use_container_width=True):
             cols[1].write(slide.get("body", ""))
             cols[1].caption(slide.get("footer", ""))
 
-    # Download button
     with open(filepath, "rb") as f:
         pptx_bytes = f.read()
 
