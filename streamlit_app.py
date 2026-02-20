@@ -1,0 +1,201 @@
+"""Streamlit UI for the finance slide generator."""
+
+import io
+import os
+
+import streamlit as st
+import yaml
+
+from src.research.news import fetch_news_topics, format_news_for_prompt
+from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
+from src.content.generator import generate_slide_content
+from src.content.reviewer import review_and_improve
+from src.slides.pptx_builder import build_pptx
+
+
+def load_config(path: str = "config.yaml") -> dict:
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+st.set_page_config(page_title="Posting — Finance Slides", page_icon="📊", layout="wide")
+
+st.title("Posting")
+st.caption("Generate trending finance slide decks for TikTok & Instagram")
+
+# ── Sidebar: Settings ─────────────────────────────────────────────────────────
+
+st.sidebar.header("Settings")
+
+# API key — prefer env var, allow override in sidebar
+api_key = st.sidebar.text_input(
+    "Anthropic API Key",
+    value=os.environ.get("ANTHROPIC_API_KEY", ""),
+    type="password",
+    help="Required. Set ANTHROPIC_API_KEY env var or paste here.",
+)
+
+config = load_config()
+slides_cfg = config.get("slides", {})
+research_cfg = config.get("research", {})
+content_cfg = config.get("content", {})
+
+st.sidebar.subheader("Slides")
+slide_count = st.sidebar.slider("Number of slides", 1, 10, slides_cfg.get("count", 5))
+tone = st.sidebar.selectbox(
+    "Tone",
+    ["bold", "casual", "professional", "educational"],
+    index=["bold", "casual", "professional", "educational"].index(
+        slides_cfg.get("tone", "bold")
+    ),
+)
+audience = st.sidebar.text_input("Audience", slides_cfg.get("audience", "retail investors"))
+aspect_ratio = st.sidebar.selectbox(
+    "Aspect ratio",
+    ["9:16 (vertical / stories)", "16:9 (landscape)"],
+    index=0 if slides_cfg.get("aspect_ratio", "9:16") == "9:16" else 1,
+)
+aspect_ratio_val = "9:16" if aspect_ratio.startswith("9:16") else "16:9"
+
+st.sidebar.subheader("Colors")
+col1, col2 = st.sidebar.columns(2)
+colors_cfg = slides_cfg.get("colors", {})
+bg_color = col1.color_picker("Background", colors_cfg.get("background", "#0D1117"))
+title_color = col2.color_picker("Title", colors_cfg.get("title", "#FFFFFF"))
+body_color = col1.color_picker("Body", colors_cfg.get("body", "#C9D1D9"))
+accent_color = col2.color_picker("Accent", colors_cfg.get("accent", "#58A6FF"))
+highlight_color = col1.color_picker("Highlight", colors_cfg.get("highlight", "#F0883E"))
+
+st.sidebar.subheader("Research")
+available_sources = ["news", "reddit"]
+default_sources = research_cfg.get("sources", ["news"])
+sources = st.sidebar.multiselect("Sources", available_sources, default=default_sources)
+
+default_topics = research_cfg.get("topics", ["stocks"])
+topics = st.sidebar.multiselect(
+    "Topics",
+    ["stocks", "crypto", "earnings", "market trends", "economic indicators"],
+    default=default_topics,
+)
+
+default_subs = research_cfg.get("subreddits", ["stocks"])
+subreddits_input = st.sidebar.text_input(
+    "Subreddits (comma-separated)",
+    ", ".join(default_subs),
+)
+subreddits = [s.strip() for s in subreddits_input.split(",") if s.strip()]
+
+st.sidebar.subheader("Review")
+review_iterations = st.sidebar.slider(
+    "Review iterations", 0, 5, content_cfg.get("review_iterations", 2)
+)
+style_notes = st.sidebar.text_area(
+    "Style notes",
+    content_cfg.get("style_notes", ""),
+    height=100,
+)
+
+# ── Main area: Generate ───────────────────────────────────────────────────────
+
+if st.button("Generate Slides", type="primary", use_container_width=True):
+    if not api_key:
+        st.error("Please provide an Anthropic API key in the sidebar.")
+        st.stop()
+
+    # Set the key for the Anthropic client
+    os.environ["ANTHROPIC_API_KEY"] = api_key
+
+    colors = {
+        "background": bg_color,
+        "title": title_color,
+        "body": body_color,
+        "accent": accent_color,
+        "highlight": highlight_color,
+    }
+
+    progress = st.progress(0, text="Starting...")
+
+    # Step 1: Research
+    progress.progress(10, text="Step 1/4 — Researching trending topics...")
+    research_parts = []
+
+    if "news" in sources:
+        with st.spinner("Fetching news feeds..."):
+            news_items = fetch_news_topics(topics)
+            research_parts.append(format_news_for_prompt(news_items))
+            st.toast(f"Found {len(news_items)} news articles")
+
+    if "reddit" in sources:
+        with st.spinner("Fetching Reddit discussions..."):
+            reddit_posts = fetch_reddit_topics(subreddits)
+            research_parts.append(format_reddit_for_prompt(reddit_posts))
+            st.toast(f"Found {len(reddit_posts)} Reddit posts")
+
+    research_text = "\n\n".join(research_parts)
+    empty_markers = {"No news articles found.", "No Reddit posts found."}
+
+    if not research_parts or all(p.strip() in empty_markers for p in research_parts):
+        st.error("No research data found. Check your network connection and config.")
+        st.stop()
+
+    # Step 2: Generate
+    progress.progress(30, text="Step 2/4 — Generating slides with Claude...")
+    with st.spinner("Claude is writing your slides..."):
+        slides = generate_slide_content(
+            research_text=research_text,
+            slide_count=slide_count,
+            tone=tone,
+            audience=audience,
+            style_notes=style_notes,
+        )
+
+    # Step 3: Review
+    if review_iterations > 0:
+        progress.progress(55, text="Step 3/4 — Reviewing and improving engagement...")
+        with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
+            slides = review_and_improve(
+                slides=slides,
+                tone=tone,
+                audience=audience,
+                iterations=review_iterations,
+            )
+    else:
+        progress.progress(55, text="Step 3/4 — Skipping review (0 iterations)")
+
+    # Step 4: Build PPTX
+    progress.progress(85, text="Step 4/4 — Building PPTX...")
+    filepath = build_pptx(
+        slides=slides,
+        colors=colors,
+        aspect_ratio=aspect_ratio_val,
+        output_dir="./output",
+    )
+
+    progress.progress(100, text="Done!")
+
+    # ── Results ────────────────────────────────────────────────────────────
+
+    st.success(f"Generated {len(slides)} slides!")
+
+    # Slide preview
+    st.subheader("Slide Preview")
+    for i, slide in enumerate(slides):
+        with st.container(border=True):
+            cols = st.columns([1, 12])
+            cols[0].markdown(f"**{i + 1}**")
+            cols[1].markdown(f"### {slide.get('title', '')}")
+            cols[1].write(slide.get("body", ""))
+            cols[1].caption(slide.get("footer", ""))
+
+    # Download button
+    with open(filepath, "rb") as f:
+        pptx_bytes = f.read()
+
+    st.download_button(
+        label="Download PPTX",
+        data=pptx_bytes,
+        file_name=os.path.basename(filepath),
+        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        type="primary",
+        use_container_width=True,
+    )
