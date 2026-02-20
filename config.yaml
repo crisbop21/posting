@@ -1,0 +1,51 @@
+# Slide preferences
+slides:
+  # Number of slides to generate per run
+  count: 5
+  # Tone: casual, professional, educational, bold
+  tone: "bold"
+  # Target audience
+  audience: "retail investors and finance enthusiasts on TikTok/Instagram"
+  # Slide dimensions (16:9 for social media stories, use 9:16 for vertical)
+  aspect_ratio: "9:16"
+  # Color scheme
+  colors:
+    background: "#0D1117"
+    title: "#FFFFFF"
+    body: "#C9D1D9"
+    accent: "#58A6FF"
+    highlight: "#F0883E"
+
+# Research preferences
+research:
+  # Sources to use: news, reddit (comma-separated)
+  sources:
+    - news
+    - reddit
+  # Finance topics of interest
+  topics:
+    - stocks
+    - crypto
+    - earnings
+    - market trends
+    - economic indicators
+  # Reddit subreddits to scan
+  subreddits:
+    - wallstreetbets
+    - stocks
+    - investing
+    - stockmarket
+
+# Content generation
+content:
+  # Number of engagement review iterations
+  review_iterations: 2
+  # Style notes for the AI
+  style_notes: >
+    Use short punchy sentences. Include relevant numbers and data points.
+    Make it feel urgent and timely. Use hooks that grab attention.
+    Each slide should be digestible in under 5 seconds of reading.
+
+# Output
+output:
+  directory: "./output"
