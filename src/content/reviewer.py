@@ -1,6 +1,7 @@
 """Review and iteratively improve slide content for engagement using Claude."""
 
 import json
+import re
 
 import anthropic
 
@@ -74,9 +75,8 @@ Return your response as JSON with this structure:
 Return ONLY the JSON, no other text."""
 
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-20250514",
             max_tokens=4096,
-            thinking={"type": "adaptive"},
             messages=[{"role": "user", "content": review_prompt}],
         )
 
@@ -86,14 +86,7 @@ Return ONLY the JSON, no other text."""
                 text = block.text
                 break
 
-        # Parse response
-        text = text.strip()
-        if text.startswith("```"):
-            text = text.split("\n", 1)[1]
-            text = text.rsplit("```", 1)[0]
-            text = text.strip()
-
-        result = json.loads(text)
+        result = _parse_json(text)
 
         review = result.get("review", {})
         overall = review.get("overall_score", "N/A")
@@ -116,3 +109,12 @@ Return ONLY the JSON, no other text."""
         current_slides = result.get("improved_slides", current_slides)
 
     return current_slides
+
+
+def _parse_json(text: str):
+    """Extract and parse JSON from a model response that may contain markdown fences."""
+    text = text.strip()
+    match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if match:
+        text = match.group(1).strip()
+    return json.loads(text)

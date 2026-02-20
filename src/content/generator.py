@@ -1,6 +1,7 @@
 """Generate slide content from research using Claude."""
 
 import json
+import re
 
 import anthropic
 
@@ -57,9 +58,8 @@ Return your response as a JSON array of slide objects. Each slide must have:
 Return ONLY the JSON array, no other text."""
 
     response = client.messages.create(
-        model="claude-opus-4-6",
+        model="claude-sonnet-4-20250514",
         max_tokens=4096,
-        thinking={"type": "adaptive"},
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
@@ -71,13 +71,15 @@ Return ONLY the JSON array, no other text."""
             text = block.text
             break
 
-    # Parse the JSON array from the response
-    # Handle potential markdown code blocks wrapping
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1]  # Remove first line (```json)
-        text = text.rsplit("```", 1)[0]  # Remove last ```
-        text = text.strip()
-
-    slides = json.loads(text)
+    slides = _parse_json(text)
     return slides
+
+
+def _parse_json(text: str):
+    """Extract and parse JSON from a model response that may contain markdown fences."""
+    text = text.strip()
+    # Strip markdown code fences
+    match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if match:
+        text = match.group(1).strip()
+    return json.loads(text)
