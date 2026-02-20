@@ -2,6 +2,7 @@
 
 import os
 
+import anthropic
 import streamlit as st
 import yaml
 
@@ -32,11 +33,21 @@ st.caption("Generate trending finance slide decks for TikTok & Instagram")
 
 st.sidebar.header("Settings")
 
+def _get_default_api_key() -> str:
+    """Read API key from env var or Streamlit Cloud secrets."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        try:
+            key = st.secrets.get("ANTHROPIC_API_KEY", "")
+        except FileNotFoundError:
+            pass
+    return key
+
 api_key = st.sidebar.text_input(
     "Anthropic API Key",
-    value=os.environ.get("ANTHROPIC_API_KEY", ""),
+    value=_get_default_api_key(),
     type="password",
-    help="Required. Set ANTHROPIC_API_KEY env var or paste here.",
+    help="Required. Set ANTHROPIC_API_KEY env var, add to Streamlit secrets, or paste here.",
 )
 
 config = load_config()
@@ -191,9 +202,13 @@ if st.session_state.step == 1:
 
             st.session_state.research_text = research_text
 
-        with st.spinner("Generating topic suggestions with Claude..."):
-            topic_options = suggest_topics(research_text, audience)
-            st.session_state.topic_options = topic_options
+        try:
+            with st.spinner("Generating topic suggestions with Claude..."):
+                topic_options = suggest_topics(research_text, audience)
+                st.session_state.topic_options = topic_options
+        except anthropic.AuthenticationError:
+            st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+            st.stop()
 
         st.rerun()
 
@@ -248,15 +263,19 @@ elif st.session_state.step == 3:
     # Generate hooks if we don't have them yet
     if not st.session_state.hook_options:
         _require_api_key()
-        with st.spinner("Generating 10 hook options using proven formulas..."):
-            hooks = generate_hooks(
-                topic=topic["title"],
-                angle=angle,
-                tone=tone,
-                audience=audience,
-            )
-            st.session_state.hook_options = hooks
-            st.rerun()
+        try:
+            with st.spinner("Generating 10 hook options using proven formulas..."):
+                hooks = generate_hooks(
+                    topic=topic["title"],
+                    angle=angle,
+                    tone=tone,
+                    audience=audience,
+                )
+                st.session_state.hook_options = hooks
+                st.rerun()
+        except anthropic.AuthenticationError:
+            st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+            st.stop()
 
     hooks = st.session_state.hook_options
     hook_labels = [f"[{h['style']}] {h['hook']}" for h in hooks]
@@ -306,82 +325,87 @@ elif st.session_state.step == 4:
             "highlight": highlight_color,
         }
 
-        progress = st.progress(0, text="Generating slides...")
+        try:
+            progress = st.progress(0, text="Generating slides...")
 
-        # 1) Generate slides
-        with st.spinner("Claude is writing your slides..."):
-            progress.progress(15, text="Generating slides with Claude...")
-            slides = generate_slide_content(
-                topic=topic["title"],
-                angle=angle,
-                hook=hook["hook"],
-                slide_count=slide_count,
-                tone=tone,
-                audience=audience,
-                style_notes=style_notes,
-            )
-
-        # 2) Review iterations
-        if review_iterations > 0:
-            with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-                progress.progress(35, text="Reviewing and improving engagement...")
-                slides = review_and_improve(
-                    slides=slides,
+            # 1) Generate slides
+            with st.spinner("Claude is writing your slides..."):
+                progress.progress(15, text="Generating slides with Claude...")
+                slides = generate_slide_content(
+                    topic=topic["title"],
+                    angle=angle,
+                    hook=hook["hook"],
+                    slide_count=slide_count,
                     tone=tone,
                     audience=audience,
-                    iterations=review_iterations,
+                    style_notes=style_notes,
                 )
 
-        # 3) Fact-check (iterate until no slides are flagged, max 3 rounds)
-        max_fc_rounds = 3
-        for fc_round in range(1, max_fc_rounds + 1):
-            with st.spinner(f"Fact-checking all claims (round {fc_round})..."):
-                progress.progress(
-                    50 + fc_round * 5,
-                    text=f"Fact-checking slides (round {fc_round}/{max_fc_rounds})...",
+            # 2) Review iterations
+            if review_iterations > 0:
+                with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
+                    progress.progress(35, text="Reviewing and improving engagement...")
+                    slides = review_and_improve(
+                        slides=slides,
+                        tone=tone,
+                        audience=audience,
+                        iterations=review_iterations,
+                    )
+
+            # 3) Fact-check (iterate until no slides are flagged, max 3 rounds)
+            max_fc_rounds = 3
+            for fc_round in range(1, max_fc_rounds + 1):
+                with st.spinner(f"Fact-checking all claims (round {fc_round})..."):
+                    progress.progress(
+                        50 + fc_round * 5,
+                        text=f"Fact-checking slides (round {fc_round}/{max_fc_rounds})...",
+                    )
+                    fc_result = fact_check_slides(slides, topic["title"], angle)
+                    fact_report = fc_result.get("fact_check_report", [])
+                    slides = fc_result.get("corrected_slides", slides)
+
+                has_flagged = any(
+                    item.get("status") == "flagged" for item in fact_report
                 )
-                fc_result = fact_check_slides(slides, topic["title"], angle)
-                fact_report = fc_result.get("fact_check_report", [])
-                slides = fc_result.get("corrected_slides", slides)
+                if not has_flagged:
+                    break
 
-            has_flagged = any(
-                item.get("status") == "flagged" for item in fact_report
-            )
-            if not has_flagged:
-                break
+                if fc_round < max_fc_rounds:
+                    st.toast(
+                        f"Round {fc_round}: some claims still flagged — re-checking..."
+                    )
 
-            if fc_round < max_fc_rounds:
-                st.toast(
-                    f"Round {fc_round}: some claims still flagged — re-checking..."
+            st.session_state.fact_check_report = fact_report
+
+            # 4) Generate TikTok metadata
+            with st.spinner("Generating TikTok title & description..."):
+                progress.progress(75, text="Generating TikTok metadata...")
+                metadata = generate_tiktok_metadata(
+                    slides=slides,
+                    topic=topic["title"],
+                    angle=angle,
+                    hook=hook["hook"],
                 )
+                st.session_state.tiktok_metadata = metadata
 
-        st.session_state.fact_check_report = fact_report
-
-        # 4) Generate TikTok metadata
-        with st.spinner("Generating TikTok title & description..."):
-            progress.progress(75, text="Generating TikTok metadata...")
-            metadata = generate_tiktok_metadata(
+            # 5) Build PPTX
+            progress.progress(90, text="Building PPTX...")
+            filepath = build_pptx(
                 slides=slides,
-                topic=topic["title"],
-                angle=angle,
-                hook=hook["hook"],
+                colors=colors,
+                aspect_ratio=aspect_ratio_val,
+                output_dir="./output",
             )
-            st.session_state.tiktok_metadata = metadata
 
-        # 5) Build PPTX
-        progress.progress(90, text="Building PPTX...")
-        filepath = build_pptx(
-            slides=slides,
-            colors=colors,
-            aspect_ratio=aspect_ratio_val,
-            output_dir="./output",
-        )
+            progress.progress(100, text="Done!")
 
-        progress.progress(100, text="Done!")
+            st.session_state.slides = slides
+            st.session_state.pptx_path = filepath
+            st.rerun()
 
-        st.session_state.slides = slides
-        st.session_state.pptx_path = filepath
-        st.rerun()
+        except anthropic.AuthenticationError:
+            st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+            st.stop()
 
     # ── Results ────────────────────────────────────────────────────────────
     slides = st.session_state.slides
