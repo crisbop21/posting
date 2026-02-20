@@ -7,7 +7,13 @@ import yaml
 
 from src.research.news import fetch_news_topics, format_news_for_prompt
 from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
-from src.content.generator import suggest_topics, generate_hooks, generate_slide_content
+from src.content.generator import (
+    suggest_topics,
+    generate_hooks,
+    generate_slide_content,
+    fact_check_slides,
+    generate_tiktok_metadata,
+)
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 
@@ -39,7 +45,7 @@ research_cfg = config.get("research", {})
 content_cfg = config.get("content", {})
 
 st.sidebar.subheader("Slides")
-slide_count = st.sidebar.slider("Number of slides", 1, 10, slides_cfg.get("count", 5))
+slide_count = st.sidebar.slider("Number of slides", 6, 8, min(max(slides_cfg.get("count", 7), 6), 8))
 tone = st.sidebar.selectbox(
     "Tone",
     ["bold", "casual", "professional", "educational"],
@@ -113,6 +119,8 @@ for key, default in {
     "hook_options": [],
     "selected_hook": None,
     "slides": [],
+    "fact_check_report": [],
+    "tiktok_metadata": None,
     "pptx_path": None,
 }.items():
     if key not in st.session_state:
@@ -145,7 +153,8 @@ st.divider()
 if st.session_state.step > 1:
     if st.button("Start Over"):
         for key in ["step", "research_text", "topic_options", "selected_topic",
-                     "angle", "hook_options", "selected_hook", "slides", "pptx_path"]:
+                     "angle", "hook_options", "selected_hook", "slides",
+                     "fact_check_report", "tiktok_metadata", "pptx_path"]:
             del st.session_state[key]
         st.rerun()
 
@@ -239,7 +248,7 @@ elif st.session_state.step == 3:
     # Generate hooks if we don't have them yet
     if not st.session_state.hook_options:
         _require_api_key()
-        with st.spinner("Generating 10 hook options with Claude..."):
+        with st.spinner("Generating 10 hook options using proven formulas..."):
             hooks = generate_hooks(
                 topic=topic["title"],
                 angle=angle,
@@ -270,7 +279,7 @@ elif st.session_state.step == 3:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 — Generate & Download Slides
+# STEP 4 — Generate, Fact-Check & Download Slides
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 4:
@@ -299,8 +308,9 @@ elif st.session_state.step == 4:
 
         progress = st.progress(0, text="Generating slides...")
 
+        # 1) Generate slides
         with st.spinner("Claude is writing your slides..."):
-            progress.progress(20, text="Generating slides with Claude...")
+            progress.progress(15, text="Generating slides with Claude...")
             slides = generate_slide_content(
                 topic=topic["title"],
                 angle=angle,
@@ -311,9 +321,10 @@ elif st.session_state.step == 4:
                 style_notes=style_notes,
             )
 
+        # 2) Review iterations
         if review_iterations > 0:
             with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-                progress.progress(50, text="Reviewing and improving...")
+                progress.progress(35, text="Reviewing and improving engagement...")
                 slides = review_and_improve(
                     slides=slides,
                     tone=tone,
@@ -321,7 +332,27 @@ elif st.session_state.step == 4:
                     iterations=review_iterations,
                 )
 
-        progress.progress(80, text="Building PPTX...")
+        # 3) Fact-check
+        with st.spinner("Fact-checking all claims..."):
+            progress.progress(60, text="Fact-checking slides...")
+            fc_result = fact_check_slides(slides, topic["title"], angle)
+            fact_report = fc_result.get("fact_check_report", [])
+            slides = fc_result.get("corrected_slides", slides)
+            st.session_state.fact_check_report = fact_report
+
+        # 4) Generate TikTok metadata
+        with st.spinner("Generating TikTok title & description..."):
+            progress.progress(75, text="Generating TikTok metadata...")
+            metadata = generate_tiktok_metadata(
+                slides=slides,
+                topic=topic["title"],
+                angle=angle,
+                hook=hook["hook"],
+            )
+            st.session_state.tiktok_metadata = metadata
+
+        # 5) Build PPTX
+        progress.progress(90, text="Building PPTX...")
         filepath = build_pptx(
             slides=slides,
             colors=colors,
@@ -338,18 +369,49 @@ elif st.session_state.step == 4:
     # ── Results ────────────────────────────────────────────────────────────
     slides = st.session_state.slides
     filepath = st.session_state.pptx_path
+    fact_report = st.session_state.fact_check_report
+    metadata = st.session_state.tiktok_metadata
 
-    st.success(f"Generated {len(slides)} slides!")
+    st.success(f"Generated {len(slides)} slides — fact-checked and ready to post!")
 
+    # ── Slide Preview ──────────────────────────────────────────────────────
     st.subheader("Slide Preview")
     for i, slide in enumerate(slides):
         with st.container(border=True):
-            cols = st.columns([1, 12])
-            cols[0].markdown(f"**{i + 1}**")
-            cols[1].markdown(f"### {slide.get('title', '')}")
-            cols[1].write(slide.get("body", ""))
-            cols[1].caption(slide.get("footer", ""))
+            slide_cols = st.columns([1, 12])
+            slide_cols[0].markdown(f"**{i + 1}**")
+            slide_cols[1].markdown(f"### {slide.get('title', '')}")
+            slide_cols[1].write(slide.get("body", ""))
+            slide_cols[1].caption(slide.get("footer", ""))
 
+    # ── Fact-Check Report ──────────────────────────────────────────────────
+    if fact_report:
+        with st.expander("Fact-Check Report", expanded=False):
+            for item in fact_report:
+                slide_num = item.get("slide", "?")
+                status = item.get("status", "unknown")
+                notes = item.get("notes", "")
+                if status == "verified":
+                    st.markdown(f"**Slide {slide_num}** — :green[verified]  \n{notes}")
+                elif status == "corrected":
+                    st.markdown(f"**Slide {slide_num}** — :orange[corrected]  \n{notes}")
+                else:
+                    st.markdown(f"**Slide {slide_num}** — :red[flagged]  \n{notes}")
+
+    # ── TikTok Metadata ───────────────────────────────────────────────────
+    if metadata:
+        st.subheader("TikTok Post Copy")
+        st.text_input("Video Title", value=metadata.get("title", ""), key="tiktok_title")
+        description = metadata.get("description", "")
+        st.text_area("Description", value=description, height=160, key="tiktok_desc")
+        char_count = len(description)
+        if char_count >= 200:
+            st.caption(f":green[{char_count} characters] (meets 200+ requirement)")
+        else:
+            st.caption(f":red[{char_count} characters] (below 200 minimum — add more text)")
+
+    # ── Download ───────────────────────────────────────────────────────────
+    st.divider()
     with open(filepath, "rb") as f:
         pptx_bytes = f.read()
 
