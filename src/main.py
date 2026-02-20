@@ -59,10 +59,8 @@ def run(config_path: str = "config.yaml") -> None:
 
     research_text = "\n\n".join(research_parts)
 
-    if not research_text.strip() or research_text.strip() in (
-        "No news articles found.",
-        "No Reddit posts found.",
-    ):
+    empty_markers = {"No news articles found.", "No Reddit posts found."}
+    if not research_parts or all(p.strip() in empty_markers for p in research_parts):
         print("No research data found. Check your network connection and config.")
         sys.exit(1)
 
