@@ -1,0 +1,125 @@
+"""Main orchestrator: research → generate → review → build slides."""
+
+import argparse
+import os
+import sys
+
+import yaml
+
+from src.research.news import fetch_news_topics, format_news_for_prompt
+from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
+from src.content.generator import generate_slide_content
+from src.content.reviewer import review_and_improve
+from src.slides.pptx_builder import build_pptx
+
+
+def load_config(path: str = "config.yaml") -> dict:
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def run(config_path: str = "config.yaml") -> None:
+    config = load_config(config_path)
+
+    slides_cfg = config.get("slides", {})
+    research_cfg = config.get("research", {})
+    content_cfg = config.get("content", {})
+    output_cfg = config.get("output", {})
+
+    slide_count = slides_cfg.get("count", 5)
+    tone = slides_cfg.get("tone", "bold")
+    audience = slides_cfg.get("audience", "retail investors")
+    colors = slides_cfg.get("colors", {})
+    aspect_ratio = slides_cfg.get("aspect_ratio", "9:16")
+
+    sources = research_cfg.get("sources", ["news"])
+    topics = research_cfg.get("topics", ["stocks"])
+    subreddits = research_cfg.get("subreddits", ["stocks"])
+
+    review_iterations = content_cfg.get("review_iterations", 2)
+    style_notes = content_cfg.get("style_notes", "")
+
+    output_dir = output_cfg.get("directory", "./output")
+
+    # ── Step 1: Research ──────────────────────────────────────────────
+    print("Step 1: Researching trending finance topics...")
+    research_parts = []
+
+    if "news" in sources:
+        print("  Fetching news feeds...")
+        news_items = fetch_news_topics(topics)
+        print(f"  Found {len(news_items)} news articles.")
+        research_parts.append(format_news_for_prompt(news_items))
+
+    if "reddit" in sources:
+        print("  Fetching Reddit discussions...")
+        reddit_posts = fetch_reddit_topics(subreddits)
+        print(f"  Found {len(reddit_posts)} Reddit posts.")
+        research_parts.append(format_reddit_for_prompt(reddit_posts))
+
+    research_text = "\n\n".join(research_parts)
+
+    if not research_text.strip() or research_text.strip() in (
+        "No news articles found.",
+        "No Reddit posts found.",
+    ):
+        print("No research data found. Check your network connection and config.")
+        sys.exit(1)
+
+    # ── Step 2: Generate slide content ────────────────────────────────
+    print(f"\nStep 2: Generating {slide_count} slides with Claude...")
+    slides = generate_slide_content(
+        research_text=research_text,
+        slide_count=slide_count,
+        tone=tone,
+        audience=audience,
+        style_notes=style_notes,
+    )
+    print(f"  Generated {len(slides)} slides.")
+
+    # ── Step 3: Review and improve engagement ─────────────────────────
+    print(f"\nStep 3: Reviewing engagement ({review_iterations} iterations)...")
+    slides = review_and_improve(
+        slides=slides,
+        tone=tone,
+        audience=audience,
+        iterations=review_iterations,
+    )
+    print("  Review complete.")
+
+    # ── Step 4: Build PPTX ────────────────────────────────────────────
+    print("\nStep 4: Building PPTX...")
+    filepath = build_pptx(
+        slides=slides,
+        colors=colors,
+        aspect_ratio=aspect_ratio,
+        output_dir=output_dir,
+    )
+    print(f"  Saved to: {filepath}")
+
+    # Print slide preview
+    print("\n── Slide Preview ──")
+    for i, slide in enumerate(slides, 1):
+        print(f"\n  Slide {i}:")
+        print(f"    Title:  {slide.get('title', '')}")
+        print(f"    Body:   {slide.get('body', '')}")
+        print(f"    Footer: {slide.get('footer', '')}")
+
+    print(f"\nDone! Open {filepath} to review your slides.")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate daily finance slides for social media"
+    )
+    parser.add_argument(
+        "-c", "--config",
+        default="config.yaml",
+        help="Path to config file (default: config.yaml)",
+    )
+    args = parser.parse_args()
+    run(config_path=args.config)
+
+
+if __name__ == "__main__":
+    main()

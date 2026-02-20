@@ -1,0 +1,16 @@
+[project]
+name = "posting"
+version = "0.1.0"
+description = "Daily finance research and slide generation for social media"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",
+    "python-pptx>=1.0.0",
+    "feedparser>=6.0.0",
+    "praw>=7.7.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+]
+
+[project.scripts]
+posting = "src.main:main"
