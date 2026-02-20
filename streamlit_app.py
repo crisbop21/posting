@@ -45,7 +45,7 @@ research_cfg = config.get("research", {})
 content_cfg = config.get("content", {})
 
 st.sidebar.subheader("Slides")
-slide_count = st.sidebar.slider("Number of slides", 6, 8, min(max(slides_cfg.get("count", 7), 6), 8))
+slide_count = st.sidebar.slider("Number of slides", 3, 15, min(max(slides_cfg.get("count", 7), 3), 15))
 tone = st.sidebar.selectbox(
     "Tone",
     ["bold", "casual", "professional", "educational"],
@@ -332,13 +332,30 @@ elif st.session_state.step == 4:
                     iterations=review_iterations,
                 )
 
-        # 3) Fact-check
-        with st.spinner("Fact-checking all claims..."):
-            progress.progress(60, text="Fact-checking slides...")
-            fc_result = fact_check_slides(slides, topic["title"], angle)
-            fact_report = fc_result.get("fact_check_report", [])
-            slides = fc_result.get("corrected_slides", slides)
-            st.session_state.fact_check_report = fact_report
+        # 3) Fact-check (iterate until no slides are flagged, max 3 rounds)
+        max_fc_rounds = 3
+        for fc_round in range(1, max_fc_rounds + 1):
+            with st.spinner(f"Fact-checking all claims (round {fc_round})..."):
+                progress.progress(
+                    50 + fc_round * 5,
+                    text=f"Fact-checking slides (round {fc_round}/{max_fc_rounds})...",
+                )
+                fc_result = fact_check_slides(slides, topic["title"], angle)
+                fact_report = fc_result.get("fact_check_report", [])
+                slides = fc_result.get("corrected_slides", slides)
+
+            has_flagged = any(
+                item.get("status") == "flagged" for item in fact_report
+            )
+            if not has_flagged:
+                break
+
+            if fc_round < max_fc_rounds:
+                st.toast(
+                    f"Round {fc_round}: some claims still flagged — re-checking..."
+                )
+
+        st.session_state.fact_check_report = fact_report
 
         # 4) Generate TikTok metadata
         with st.spinner("Generating TikTok title & description..."):
