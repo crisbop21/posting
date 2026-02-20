@@ -8,7 +8,13 @@ import yaml
 
 from src.research.news import fetch_news_topics, format_news_for_prompt
 from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
-from src.content.generator import suggest_topics, generate_hooks, generate_slide_content
+from src.content.generator import (
+    suggest_topics,
+    generate_hooks,
+    generate_slide_content,
+    fact_check_slides,
+    generate_tiktok_metadata,
+)
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 
@@ -115,8 +121,29 @@ def run(config_path: str = "config.yaml") -> None:
     )
     print("  Review complete.")
 
-    # ── Step 6: Build PPTX ────────────────────────────────────────────
-    print("\nStep 6: Building PPTX...")
+    # ── Step 6: Fact-check ─────────────────────────────────────────────
+    print("\nStep 6: Fact-checking all claims...")
+    fc_result = fact_check_slides(slides, chosen_topic["title"], angle)
+    for item in fc_result.get("fact_check_report", []):
+        status = item.get("status", "unknown")
+        notes = item.get("notes", "")
+        print(f"  Slide {item.get('slide', '?')}: [{status}] {notes}")
+    slides = fc_result.get("corrected_slides", slides)
+
+    # ── Step 7: Generate TikTok metadata ───────────────────────────────
+    print("\nStep 7: Generating TikTok title & description...")
+    metadata = generate_tiktok_metadata(
+        slides=slides,
+        topic=chosen_topic["title"],
+        angle=angle,
+        hook=chosen_hook["hook"],
+    )
+    print(f"  Title: {metadata.get('title', '')}")
+    print(f"  Description ({len(metadata.get('description', ''))} chars):")
+    print(f"  {metadata.get('description', '')}")
+
+    # ── Step 8: Build PPTX ─────────────────────────────────────────────
+    print("\nStep 8: Building PPTX...")
     filepath = build_pptx(
         slides=slides,
         colors=colors,
