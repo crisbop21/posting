@@ -5,6 +5,8 @@ import re
 
 import anthropic
 
+from src.api import create_message
+
 HOOK_FORMULAS = """
 TOP 10 HOOK FORMULAS (ranked by proven performance — use these as templates):
 
@@ -90,8 +92,6 @@ def fact_check_news(news_text: str) -> list[dict]:
         - "corrected_summary": factually accurate summary (same as original if verified)
         - "reason": brief explanation of what was checked or changed
     """
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a rigorous financial news fact-checker. Review each numbered article below.
 
 {news_text}
@@ -116,7 +116,7 @@ Return your response as a JSON array — one object per article:
 
 Return ONLY the JSON array, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
@@ -128,8 +128,6 @@ Return ONLY the JSON array, no other text."""
 
 def suggest_topics(research_text: str, audience: str) -> list[dict]:
     """Analyse research data and return 10 potential topic ideas."""
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a finance content strategist. Your audience is: {audience}.
 
 Based on the trending research below, suggest exactly 10 potential slide-deck topics.
@@ -144,7 +142,7 @@ Return your response as a JSON array of 10 objects, each with:
 
 Return ONLY the JSON array, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
@@ -161,8 +159,6 @@ def generate_hooks(
     audience: str,
 ) -> list[dict]:
     """Generate 10 hook options using the proven hook formulas."""
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a viral finance content creator. Your audience is: {audience}.
 Tone: {tone}.
 
@@ -186,7 +182,7 @@ Return your response as a JSON array of 10 objects, each with:
 
 Return ONLY the JSON array, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
@@ -206,8 +202,6 @@ def generate_slide_content(
     style_notes: str,
 ) -> list[dict]:
     """Generate structured slide content using strict slide rules."""
-    client = anthropic.Anthropic()
-
     system_prompt = f"""You are an expert social media content creator specializing in finance.
 You create slide decks that go viral on TikTok and Instagram.
 
@@ -248,7 +242,7 @@ Return your response as a JSON array of slide objects. Each slide must have:
 
 Return ONLY the JSON array, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=4096,
         system=system_prompt,
@@ -265,8 +259,6 @@ def add_value_pass(slides: list[dict], topic: str, angle: str, audience: str) ->
     Looks for opportunities to replace generic claims with sharper data,
     add actionable insight, or strengthen the narrative thread.
     """
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a senior finance content editor. Your reader is: {audience}.
 
 Topic: {topic}
@@ -298,7 +290,7 @@ Return your response as a JSON array of the improved slides:
 
 Return ONLY the JSON array, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
@@ -310,8 +302,6 @@ Return ONLY the JSON array, no other text."""
 
 def fact_check_slides(slides: list[dict], topic: str, angle: str) -> dict:
     """Fact-check slide content and return corrected slides with a report."""
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a rigorous financial fact-checker. Your job is to verify every claim in these slides.
 
 Topic: {topic}
@@ -349,7 +339,7 @@ Return your response as JSON with this structure:
 
 Return ONLY the JSON, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
@@ -366,8 +356,6 @@ def generate_tiktok_metadata(
     hook: str,
 ) -> dict:
     """Generate TikTok carousel title and description."""
-    client = anthropic.Anthropic()
-
     prompt = f"""You are a TikTok SEO expert for finance content.
 
 Topic: {topic}
@@ -396,7 +384,7 @@ Return your response as JSON:
 
 Return ONLY the JSON, no other text."""
 
-    response = client.messages.create(
+    response = create_message(
         model="claude-sonnet-4-20250514",
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
