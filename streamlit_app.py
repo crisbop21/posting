@@ -22,6 +22,7 @@ from src.content.generator import (
     validate_conclusion,
     check_narrative_coherence,
     strip_claim_tags,
+    web_search_fact_check,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
@@ -323,7 +324,7 @@ elif st.session_state.step == 3:
     if not st.session_state.hook_options:
         _require_api_key()
         try:
-            with st.spinner("Generating 10 hook options using proven formulas..."):
+            with st.spinner("Generating 10 hook options using hook templates..."):
                 hooks = generate_hooks(
                     topic=topic["title"],
                     angle=angle,
@@ -496,12 +497,42 @@ elif st.session_state.step == 4:
                 st.toast(f"Narrative coherence: {coherence_score}/10")
                 slides = coherence_result.get("corrected_slides", slides)
 
+            # Layer 6: Web-search-grounded fact-check for current data
+            with st.spinner("Web search fact-check — verifying claims against live data (Layer 6)..."):
+                progress.progress(70, text="Layer 6: Verifying claims against live search data...")
+                try:
+                    ws_result = web_search_fact_check(
+                        slides, topic["title"], angle,
+                    )
+                    ws_report = ws_result.get("search_report", [])
+                    slides = ws_result.get("corrected_slides", slides)
+
+                    corrected_count = sum(
+                        1 for r in ws_report if r.get("status") == "corrected"
+                    )
+                    if corrected_count:
+                        st.toast(
+                            f"Web search corrected {corrected_count} outdated claim(s)"
+                        )
+                    else:
+                        st.toast("All claims verified against current data")
+
+                    # Append web search findings to the fact-check report
+                    for item in ws_report:
+                        fact_report.append({
+                            "slide": item.get("slide", "?"),
+                            "status": item.get("status", "unknown"),
+                            "notes": f"[Layer 6 — web search] {item.get('notes', '')}",
+                        })
+                except Exception as e:
+                    st.toast(f"Web search fact-check unavailable — continuing without: {e}")
+
             # Strip claim tags for downstream processing
             slides = strip_claim_tags(slides)
 
             # Value-add pass — maximize reader insight
             with st.spinner("Final pass — maximizing reader value..."):
-                progress.progress(72, text="Adding sharper insights...")
+                progress.progress(75, text="Adding sharper insights...")
                 slides = add_value_pass(
                     slides=slides,
                     topic=topic["title"],
@@ -511,7 +542,7 @@ elif st.session_state.step == 4:
 
             # Final engagement polish — 3 iterations with hook alignment
             with st.spinner("Final engagement polish (3 iterations)..."):
-                progress.progress(78, text="Engagement polish...")
+                progress.progress(80, text="Engagement polish...")
                 slides = review_and_improve(
                     slides=slides,
                     tone=tone,
