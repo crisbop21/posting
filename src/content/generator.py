@@ -8,46 +8,46 @@ import anthropic
 from src.api import create_message
 
 HOOK_FORMULAS = """
-TOP 10 HOOK FORMULAS (ranked by proven performance — use these as templates):
+TOP 10 HOOK FORMULAS (use these structural templates):
 
 1. DATA DIG — "[Stock/event] just [happened]. I analyzed [X] days/years of data to find out what happens every time."
-   Best performer: 4,700 views.
+   Why it works: leads with a specific event and promises a data-backed reveal.
 
 2. COMPARISON SHOCK — "[Thing A] is up [X%]. [Thing B] is up [Y%]. You think [belief]. You're wrong."
-   Best: 2,465 views.
+   Why it works: contrasts two data points and challenges the reader's assumption.
 
 3. HIDDEN GEM LIST — "I [research effort] to find [X] [things] that [remarkable outcome] since [time span]."
-   Best: 1,390 views.
+   Why it works: implies effort and exclusivity, promising curated insight.
 
 4. CONTRARIAN CALL — "Stop [common action]. This is what [topic] actually [truth/needs]."
-   Best: 946 views.
+   Why it works: challenges conventional wisdom, triggering curiosity.
 
 5. COUNTDOWN TRIGGER — "Next week could [dramatic consequence]. These [X] events matter more than you think."
-   Best: 939 views.
+   Why it works: adds urgency with a time element and promises insider context.
 
 6. AUTHORITY INSIDER — "[Institution/Billionaire] just [dramatic action]. [Bold claim about implications]."
-   Best: 832 views.
+   Why it works: borrows credibility from a known authority figure.
 
 7. OBSCURE STORY — "[Country/Company] [dramatic event X months ago]. The [name] trade explained."
-   Best: 813 views.
+   Why it works: introduces a little-known event and promises an explanation.
 
 8. EXPERIENCE PLAY — "After [X] years in [field]. Here is what they don't tell you about [topic]."
-   Best: 807 views.
+   Why it works: uses personal authority and promises hidden knowledge.
 
 9. SMART MONEY TRACKER — "[Billionaire/Fund] just put $[X]B into [stock] while everyone is selling."
-   Best: 715 views.
+   Why it works: contrasts smart money vs. crowd behavior, triggering FOMO.
 
 10. PANIC REVERSAL — "[Stock/Market] is down [X%] you panic sell. Here is the [time] that save you."
-    Best: 479 views.
+    Why it works: addresses fear directly and promises a calming data point.
 """
 
 HOOK_RULES = """
-HOOK RULES (based on pattern analysis):
-- Hooks with specific numbers get 49% more views (777 avg vs 523 without)
-- Hooks using "you/your" direct address get 26% more views (822 avg vs 652)
-- Mid-length hooks (11-18 words) are the sweet spot (750 avg views)
-- Data claim hooks ("analyzed", "data", "years", "%") average 733 views
-- NEVER use vague hooks without specific numbers (avg 200 views or less)
+HOOK RULES (best practices for engagement):
+- Include a specific number, percentage, or dollar amount — concrete data outperforms vague claims
+- Use "you/your" direct address to make it personal
+- Keep hooks 11-18 words — long enough for substance, short enough to scan
+- Use data-signalling words ("analyzed", "data", "years", "%") to imply research
+- NEVER use vague hooks without specific numbers
 - NEVER use generic hype language ("this stock went up 800%")
 - ALWAYS create an "open loop" — promise a specific reveal
 """
@@ -266,10 +266,14 @@ VERIFIED FACTS FROM RESEARCH (use these as your primary data source):
 {json.dumps(research_facts, indent=2)}
 
 GROUNDING RULES:
-- PRIORITISE facts from the research above. Every data slide should reference at least one.
+- ONLY use facts from the research above. Every data slide MUST reference at least one research fact.
 - If you use a fact from the research, tag it as "news_source".
-- If you add context or data from general knowledge, tag it as "supporting_data".
-- Do NOT invent numbers. If a specific stat isn't in the research, use general knowledge and tag it honestly.
+- If you MUST add context not in the research, tag it as "supporting_data" — but NEVER invent
+  specific prices, percentages, or dollar amounts from general knowledge. These go stale quickly.
+- For supporting_data claims, use relative/directional language (e.g. "up significantly") rather than
+  specific numbers you are not certain about. Only use exact figures that come from the research.
+- Do NOT guess current prices, index levels, or commodity prices. If the research doesn't provide
+  a specific number, do NOT make one up.
 """
         claims_instruction = """
 - "claims": An array of claim objects for each factual assertion in the slide"""
@@ -359,6 +363,9 @@ RULES:
 - Footer: short source attribution only. No hashtags, no emojis.
 - Do NOT add filler or fluff. Only improve — never dilute.
 - If a slide is already strong, leave it unchanged.
+- NEVER replace a number with a different specific number from your own knowledge.
+  Your training data may be outdated. Only sharpen numbers that already exist in the slides.
+- If you are unsure whether a specific price, percentage, or figure is current, leave it as-is.
 
 Return your response as a JSON array of the improved slides:
 [
@@ -664,6 +671,117 @@ Return ONLY the JSON, no other text."""
         model="claude-sonnet-4-20250514",
         max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Layer 6: Web-Search-Grounded Fact-Check ────────────────────────────────
+
+
+def web_search_fact_check(
+    slides: list[dict],
+    topic: str,
+    angle: str,
+) -> dict:
+    """Fact-check slide claims against live web search results.
+
+    Extracts specific numerical claims from slides, searches for current data
+    via Google News RSS, then asks the LLM to compare slide claims against
+    the search results and correct any outdated or inaccurate figures.
+
+    Returns dict with:
+        - "search_report": list of claims checked with search evidence
+        - "corrected_slides": slides with any corrections applied
+    """
+    from src.research.web_search import search_claim, format_search_results_for_prompt
+
+    # Step 1: Extract claims that contain specific numbers
+    extract_prompt = f"""Extract every specific numerical claim from these slides.
+A numerical claim is any statement with a specific price, percentage, dollar amount, date, or count.
+
+Slides:
+{json.dumps(slides, indent=2)}
+
+For each claim, also suggest a short web search query that would help verify it.
+
+Return a JSON array:
+[
+  {{
+    "slide": 1,
+    "claim": "oil prices at $85 per barrel",
+    "search_query": "crude oil price today"
+  }}
+]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": extract_prompt}],
+    )
+    claims_to_check = _parse_json(_extract_text(response))
+
+    # Step 2: Web search for each claim
+    search_context_parts = []
+    for item in claims_to_check:
+        query = item.get("search_query", item.get("claim", ""))
+        results = search_claim(query, max_results=3)
+        search_context_parts.append(
+            format_search_results_for_prompt(item.get("claim", ""), results)
+        )
+
+    search_context = "\n".join(search_context_parts)
+
+    # Step 3: Ask LLM to compare slides against search results
+    verify_prompt = f"""You are a rigorous financial fact-checker with access to current search results.
+
+Topic: {topic}
+Angle: {angle}
+
+SLIDES TO FACT-CHECK:
+{json.dumps(slides, indent=2)}
+
+CURRENT WEB SEARCH RESULTS FOR EACH CLAIM:
+{search_context}
+
+Compare every numerical claim in the slides against the search results above.
+If a search result shows a different current value (e.g. slide says "$85" but search shows "$66"),
+CORRECT the slide to match the current data.
+
+IMPORTANT:
+- Trust the search results over the slide content for current prices, levels, and percentages
+- Keep the same slide structure (title, body, footer)
+- Keep all text lowercase except ticker symbols and numbers
+- Keep every slide under 15 words for body text
+- Every slide must still contain a specific number, % or $
+- Maintain the punchy style
+- If a claim could not be verified (no search results), flag it
+
+Return your response as JSON:
+{{
+  "search_report": [
+    {{
+      "slide": 1,
+      "claim": "the specific claim",
+      "search_evidence": "what the search results show",
+      "status": "verified" or "corrected" or "unverifiable",
+      "notes": "explanation"
+    }}
+  ],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "..."}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": verify_prompt}],
     )
 
     text = _extract_text(response)
