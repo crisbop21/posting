@@ -1,5 +1,6 @@
 """Streamlit UI for the finance slide generator — guided 4-step workflow."""
 
+import io
 import os
 
 import anthropic
@@ -19,6 +20,7 @@ from src.content.generator import (
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
+from src.slides.png_builder import build_pngs
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -138,6 +140,7 @@ for key, default in {
     "fact_check_report": [],
     "tiktok_metadata": None,
     "pptx_path": None,
+    "png_paths": [],
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -170,7 +173,8 @@ if st.session_state.step > 1:
     if st.button("Start Over"):
         for key in ["step", "research_text", "topic_options", "selected_topic",
                      "angle", "hook_options", "selected_hook", "slides",
-                     "fact_check_report", "tiktok_metadata", "pptx_path"]:
+                     "fact_check_report", "tiktok_metadata", "pptx_path",
+                     "png_paths"]:
             del st.session_state[key]
         st.rerun()
 
@@ -443,9 +447,19 @@ elif st.session_state.step == 4:
                 )
                 st.session_state.tiktok_metadata = metadata
 
-            # 6) Build PPTX
-            progress.progress(90, text="Building PPTX...")
+            # 7) Build PPTX
+            progress.progress(88, text="Building PPTX...")
             filepath = build_pptx(
+                slides=slides,
+                colors=colors,
+                aspect_ratio=aspect_ratio_val,
+                output_dir="./output",
+                handle=handle,
+            )
+
+            # 8) Build PNG images
+            progress.progress(95, text="Rendering PNG slides...")
+            png_paths = build_pngs(
                 slides=slides,
                 colors=colors,
                 aspect_ratio=aspect_ratio_val,
@@ -457,6 +471,7 @@ elif st.session_state.step == 4:
 
             st.session_state.slides = slides
             st.session_state.pptx_path = filepath
+            st.session_state.png_paths = png_paths
             st.rerun()
 
         except anthropic.AuthenticationError:
@@ -537,10 +552,13 @@ elif st.session_state.step == 4:
 
     # ── Download ───────────────────────────────────────────────────────────
     st.divider()
+    st.subheader("Download")
+
+    dl_col1, dl_col2 = st.columns(2)
+
     with open(filepath, "rb") as f:
         pptx_bytes = f.read()
-
-    st.download_button(
+    dl_col1.download_button(
         label="Download PPTX",
         data=pptx_bytes,
         file_name=os.path.basename(filepath),
@@ -548,3 +566,37 @@ elif st.session_state.step == 4:
         type="primary",
         use_container_width=True,
     )
+
+    # ZIP all PNGs for easy camera-roll save
+    png_paths = st.session_state.png_paths
+    if png_paths:
+        import zipfile
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for p in png_paths:
+                zf.write(p, os.path.basename(p))
+        zip_buf.seek(0)
+        dl_col2.download_button(
+            label="Download All PNGs (ZIP)",
+            data=zip_buf,
+            file_name=f"slides_{os.path.basename(filepath).replace('.pptx', '')}.zip",
+            mime="application/zip",
+            type="primary",
+            use_container_width=True,
+        )
+
+        # Individual slide PNGs
+        with st.expander("Individual slide images", expanded=False):
+            img_cols = st.columns(min(len(png_paths), 3))
+            for i, p in enumerate(png_paths):
+                col = img_cols[i % 3]
+                col.image(p, caption=f"Slide {i + 1}", use_container_width=True)
+                with open(p, "rb") as f:
+                    col.download_button(
+                        label=f"Slide {i + 1}",
+                        data=f.read(),
+                        file_name=os.path.basename(p),
+                        mime="image/png",
+                        key=f"png_dl_{i}",
+                        use_container_width=True,
+                    )
