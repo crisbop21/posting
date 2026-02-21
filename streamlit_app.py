@@ -17,6 +17,11 @@ from src.content.generator import (
     fact_check_slides,
     fact_check_news,
     generate_tiktok_metadata,
+    extract_news_facts,
+    layered_fact_check,
+    validate_conclusion,
+    check_narrative_coherence,
+    strip_claim_tags,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
@@ -131,6 +136,7 @@ def _require_api_key():
 for key, default in {
     "step": 1,
     "research_text": "",
+    "research_facts": [],
     "topic_options": [],
     "selected_topic": None,
     "angle": "",
@@ -138,6 +144,8 @@ for key, default in {
     "selected_hook": None,
     "slides": [],
     "fact_check_report": [],
+    "conclusion_report": None,
+    "coherence_report": None,
     "tiktok_metadata": None,
     "pptx_path": None,
     "png_paths": [],
@@ -171,9 +179,10 @@ st.divider()
 
 if st.session_state.step > 1:
     if st.button("Start Over"):
-        for key in ["step", "research_text", "topic_options", "selected_topic",
-                     "angle", "hook_options", "selected_hook", "slides",
-                     "fact_check_report", "tiktok_metadata", "pptx_path",
+        for key in ["step", "research_text", "research_facts", "topic_options",
+                     "selected_topic", "angle", "hook_options", "selected_hook",
+                     "slides", "fact_check_report", "conclusion_report",
+                     "coherence_report", "tiktok_metadata", "pptx_path",
                      "png_paths"]:
             del st.session_state[key]
         st.rerun()
@@ -238,6 +247,16 @@ if st.session_state.step == 1:
                 st.stop()
 
             st.session_state.research_text = research_text
+
+        # Layer 1: Extract structured facts from research
+        try:
+            with st.spinner("Extracting structured facts from research (Layer 1)..."):
+                research_facts = extract_news_facts(research_text)
+                st.session_state.research_facts = research_facts
+                st.toast(f"Extracted {len(research_facts)} verifiable facts")
+        except Exception:
+            st.toast("Facts extraction unavailable — continuing without grounding")
+            st.session_state.research_facts = []
 
         try:
             with st.spinner("Generating topic suggestions with Claude..."):
@@ -370,10 +389,11 @@ elif st.session_state.step == 4:
 
         try:
             progress = st.progress(0, text="Generating slides...")
+            research_facts = st.session_state.research_facts
 
-            # 1) Generate slides
-            with st.spinner("Claude is writing your slides..."):
-                progress.progress(15, text="Generating slides with Claude...")
+            # Layer 2: Generate slides grounded in extracted facts
+            with st.spinner("Claude is writing fact-grounded slides (Layer 2)..."):
+                progress.progress(10, text="Generating fact-grounded slides...")
                 slides = generate_slide_content(
                     topic=topic["title"],
                     angle=angle,
@@ -382,12 +402,13 @@ elif st.session_state.step == 4:
                     tone=tone,
                     audience=audience,
                     style_notes=style_notes,
+                    research_facts=research_facts or None,
                 )
 
-            # 2) Review iterations
+            # Engagement review iterations
             if review_iterations > 0:
                 with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-                    progress.progress(25, text="Reviewing and improving engagement...")
+                    progress.progress(22, text="Reviewing and improving engagement...")
                     slides = review_and_improve(
                         slides=slides,
                         tone=tone,
@@ -396,34 +417,91 @@ elif st.session_state.step == 4:
                         hook=hook["hook"],
                     )
 
-            # 3) Fact-check (iterate until no slides are flagged, max 3 rounds)
-            max_fc_rounds = 3
-            for fc_round in range(1, max_fc_rounds + 1):
-                with st.spinner(f"Fact-checking all claims (round {fc_round})..."):
-                    progress.progress(
-                        50 + fc_round * 5,
-                        text=f"Fact-checking slides (round {fc_round}/{max_fc_rounds})...",
+            # Layer 3: Layered fact-check (A: news-sourced, B: supporting data)
+            research_text = st.session_state.research_text
+            if research_facts:
+                max_fc_rounds = 3
+                for fc_round in range(1, max_fc_rounds + 1):
+                    with st.spinner(
+                        f"Layered fact-check (round {fc_round}) — "
+                        f"A: news-sourced, B: supporting data..."
+                    ):
+                        progress.progress(
+                            35 + fc_round * 5,
+                            text=f"Layer 3: Layered fact-check (round {fc_round}/{max_fc_rounds})...",
+                        )
+                        fc_result = layered_fact_check(
+                            slides, research_text, research_facts,
+                            topic["title"], angle,
+                        )
+                        layer_a = fc_result.get("layer_a_report", [])
+                        layer_b = fc_result.get("layer_b_report", [])
+                        slides = fc_result.get("corrected_slides", slides)
+
+                    has_issues = any(
+                        item.get("status") in ("flagged", "unverifiable")
+                        for item in layer_a + layer_b
                     )
+                    if not has_issues:
+                        break
+                    if fc_round < max_fc_rounds:
+                        st.toast(
+                            f"Round {fc_round}: some claims still flagged — re-checking..."
+                        )
+
+                # Merge both layers into a unified report
+                fact_report = []
+                for item in layer_a:
+                    fact_report.append({
+                        "slide": item.get("slide", "?"),
+                        "status": item.get("status", "unknown"),
+                        "notes": f"[Layer A — news-sourced] {item.get('notes', '')}",
+                    })
+                for item in layer_b:
+                    fact_report.append({
+                        "slide": item.get("slide", "?"),
+                        "status": item.get("status", "unknown"),
+                        "notes": f"[Layer B — supporting data] {item.get('notes', '')}",
+                    })
+            else:
+                # Fallback to original fact-check when no research facts available
+                with st.spinner("Fact-checking all claims..."):
+                    progress.progress(40, text="Fact-checking slides...")
                     fc_result = fact_check_slides(slides, topic["title"], angle)
                     fact_report = fc_result.get("fact_check_report", [])
                     slides = fc_result.get("corrected_slides", slides)
 
-                has_flagged = any(
-                    item.get("status") == "flagged" for item in fact_report
-                )
-                if not has_flagged:
-                    break
-
-                if fc_round < max_fc_rounds:
-                    st.toast(
-                        f"Round {fc_round}: some claims still flagged — re-checking..."
-                    )
-
             st.session_state.fact_check_report = fact_report
 
-            # 4) Value-add pass — maximize reader insight
+            # Layer 4: Conclusion validation
+            with st.spinner("Validating conclusion logic (Layer 4)..."):
+                progress.progress(55, text="Layer 4: Validating conclusion follows evidence...")
+                conclusion_result = validate_conclusion(
+                    slides, research_facts or [], topic["title"], angle,
+                )
+                st.session_state.conclusion_report = conclusion_result
+                if not conclusion_result.get("logic_valid", True):
+                    issues = conclusion_result.get("issues", [])
+                    st.toast(f"Conclusion fixed: {len(issues)} logic gap(s) corrected")
+                slides = conclusion_result.get("corrected_slides", slides)
+
+            # Layer 5: Narrative coherence
+            with st.spinner("Checking narrative coherence (Layer 5)..."):
+                progress.progress(65, text="Layer 5: Ensuring story arc flows...")
+                coherence_result = check_narrative_coherence(
+                    slides, topic["title"], angle, hook["hook"],
+                )
+                st.session_state.coherence_report = coherence_result
+                coherence_score = coherence_result.get("coherence_score", 0)
+                st.toast(f"Narrative coherence: {coherence_score}/10")
+                slides = coherence_result.get("corrected_slides", slides)
+
+            # Strip claim tags for downstream processing
+            slides = strip_claim_tags(slides)
+
+            # Value-add pass — maximize reader insight
             with st.spinner("Final pass — maximizing reader value..."):
-                progress.progress(68, text="Adding sharper insights...")
+                progress.progress(72, text="Adding sharper insights...")
                 slides = add_value_pass(
                     slides=slides,
                     topic=topic["title"],
@@ -431,9 +509,9 @@ elif st.session_state.step == 4:
                     audience=audience,
                 )
 
-            # 5) Final engagement polish — 3 iterations with hook alignment
+            # Final engagement polish — 3 iterations with hook alignment
             with st.spinner("Final engagement polish (3 iterations)..."):
-                progress.progress(72, text="Engagement polish 1/3...")
+                progress.progress(78, text="Engagement polish...")
                 slides = review_and_improve(
                     slides=slides,
                     tone=tone,
@@ -535,7 +613,7 @@ elif st.session_state.step == 4:
 
     # ── Fact-Check Report ──────────────────────────────────────────────────
     if fact_report:
-        with st.expander("Fact-Check Report", expanded=False):
+        with st.expander("Fact-Check Report (Layered)", expanded=False):
             for item in fact_report:
                 slide_num = item.get("slide", "?")
                 status = item.get("status", "unknown")
@@ -546,6 +624,44 @@ elif st.session_state.step == 4:
                     st.markdown(f"**Slide {slide_num}** — :orange[corrected]  \n{notes}")
                 else:
                     st.markdown(f"**Slide {slide_num}** — :red[flagged]  \n{notes}")
+
+    # ── Conclusion Validation Report ──────────────────────────────────────
+    conclusion_report = st.session_state.conclusion_report
+    if conclusion_report:
+        with st.expander("Conclusion Validation (Layer 4)", expanded=False):
+            logic_valid = conclusion_report.get("logic_valid", True)
+            verdict_slide = conclusion_report.get("verdict_slide", "?")
+            if logic_valid:
+                st.markdown(f":green[Verdict (Slide {verdict_slide}) logically follows from evidence]")
+            else:
+                st.markdown(f":orange[Verdict (Slide {verdict_slide}) had logic gaps — corrected]")
+
+            evidence = conclusion_report.get("evidence_used", [])
+            if evidence:
+                st.markdown("**Evidence relied upon:**")
+                for e in evidence:
+                    st.markdown(f"- {e}")
+
+            issues = conclusion_report.get("issues", [])
+            if issues:
+                st.markdown("**Issues found:**")
+                for issue in issues:
+                    st.markdown(f"- :orange[{issue}]")
+
+    # ── Narrative Coherence Report ────────────────────────────────────────
+    coherence_report = st.session_state.coherence_report
+    if coherence_report:
+        with st.expander("Narrative Coherence (Layer 5)", expanded=False):
+            score = coherence_report.get("coherence_score", "?")
+            st.markdown(f"**Coherence Score:** {score}/10")
+            arc = coherence_report.get("arc_analysis", "")
+            if arc:
+                st.markdown(f"**Arc:** {arc}")
+            issues = coherence_report.get("issues", [])
+            if issues:
+                st.markdown("**Issues fixed:**")
+                for issue in issues:
+                    st.markdown(f"- {issue}")
 
     # ── TikTok Metadata ───────────────────────────────────────────────────
     if metadata:

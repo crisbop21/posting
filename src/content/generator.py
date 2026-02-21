@@ -82,6 +82,55 @@ FOOTER RULES:
 """
 
 
+# ── Layer 1: News Facts Extraction ────────────────────────────────────────────
+
+
+def extract_news_facts(research_text: str) -> list[dict]:
+    """Pull structured facts (numbers, events, dates, sources) from research text.
+
+    Returns a list of fact dicts, each with:
+        - "fact": the factual claim as a concise sentence
+        - "type": "number", "event", "date", or "quote"
+        - "value": the specific number/date/event name
+        - "source": which article or source it came from
+        - "confidence": "high" (directly stated) or "medium" (inferred)
+    """
+    prompt = f"""You are a financial research analyst. Extract every verifiable fact from the research below.
+
+{research_text}
+
+For EACH distinct fact, extract:
+1. The factual claim as a concise sentence
+2. The type: "number" (percentages, dollar amounts, statistics), "event" (mergers, launches, policy changes), "date" (specific dates or timeframes), or "quote" (attributed statements)
+3. The specific value (the number, date, event name, or quoted text)
+4. The source it came from (article name, outlet, or "multiple sources")
+5. Confidence: "high" if directly stated with a source, "medium" if inferred or aggregated
+
+Focus on VERIFIABLE claims — skip opinions, predictions, and vague statements.
+
+Return your response as a JSON array:
+[
+  {{
+    "fact": "S&P 500 rose 2.3% this week",
+    "type": "number",
+    "value": "2.3%",
+    "source": "Bloomberg",
+    "confidence": "high"
+  }}
+]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
 def fact_check_news(news_text: str) -> list[dict]:
     """Fact-check news articles and return corrected versions of any that are inaccurate.
 
@@ -200,8 +249,36 @@ def generate_slide_content(
     tone: str,
     audience: str,
     style_notes: str,
+    research_facts: list[dict] | None = None,
 ) -> list[dict]:
-    """Generate structured slide content using strict slide rules."""
+    """Generate structured slide content grounded in extracted facts.
+
+    When research_facts is provided (Layer 2), each slide's claims are tagged
+    as "news_source" (from research) or "supporting_data" (general knowledge).
+    """
+    facts_block = ""
+    claims_instruction = ""
+    claims_schema = ""
+
+    if research_facts:
+        facts_block = f"""
+VERIFIED FACTS FROM RESEARCH (use these as your primary data source):
+{json.dumps(research_facts, indent=2)}
+
+GROUNDING RULES:
+- PRIORITISE facts from the research above. Every data slide should reference at least one.
+- If you use a fact from the research, tag it as "news_source".
+- If you add context or data from general knowledge, tag it as "supporting_data".
+- Do NOT invent numbers. If a specific stat isn't in the research, use general knowledge and tag it honestly.
+"""
+        claims_instruction = """
+- "claims": An array of claim objects for each factual assertion in the slide"""
+        claims_schema = """
+Each claim object must have:
+- "text": the specific factual assertion (e.g. "S&P 500 up 2.3%")
+- "type": "news_source" (from research above) or "supporting_data" (general knowledge)
+- "source_ref": source name for news_source claims, or "general knowledge" for supporting_data"""
+
     system_prompt = f"""You are an expert social media content creator specializing in finance.
 You create slide decks that go viral on TikTok and Instagram.
 
@@ -218,7 +295,7 @@ Style guidelines:
 Topic: {topic}
 Angle / key information: {angle}
 Opening hook (use this EXACTLY as the first slide title): {hook}
-
+{facts_block}
 STRICT REQUIREMENTS:
 - Slide 1 title MUST be the hook above (copy it exactly)
 - Slide 2 MUST be a re-hook — a standalone entry point with a different angle on the same topic
@@ -238,8 +315,8 @@ STORYTELLING:
 Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers/numbers)
 - "body": One sentence of content (under 15 words, must include a number)
-- "footer": Short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis. Leave blank if no source.
-
+- "footer": Short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis. Leave blank if no source.{claims_instruction}
+{claims_schema}
 Return ONLY the JSON array, no other text."""
 
     response = create_message(
@@ -347,6 +424,261 @@ Return ONLY the JSON, no other text."""
 
     text = _extract_text(response)
     return _parse_json(text)
+
+
+# ── Layer 3: Layered Fact-Check ───────────────────────────────────────────────
+
+
+def layered_fact_check(
+    slides: list[dict],
+    research_text: str,
+    research_facts: list[dict],
+    topic: str,
+    angle: str,
+) -> dict:
+    """Two-layer fact-check: news-sourced claims vs supporting data claims.
+
+    Layer A: Verify news_source claims against the original research text.
+    Layer B: Verify supporting_data claims independently.
+
+    Returns dict with:
+        - "layer_a_report": list of verification results for news-sourced claims
+        - "layer_b_report": list of verification results for supporting data
+        - "corrected_slides": the slides with any corrections applied
+    """
+    prompt = f"""You are a rigorous two-layer financial fact-checker.
+
+Topic: {topic}
+Angle: {angle}
+
+ORIGINAL RESEARCH TEXT (ground truth for Layer A):
+{research_text}
+
+EXTRACTED RESEARCH FACTS:
+{json.dumps(research_facts, indent=2)}
+
+SLIDES TO FACT-CHECK:
+{json.dumps(slides, indent=2)}
+
+Perform TWO layers of fact-checking:
+
+LAYER A — NEWS-SOURCED CLAIMS:
+For each slide claim tagged as "news_source" (or any claim that references the research):
+1. Find the matching fact in the original research text above.
+2. Verify the slide's claim EXACTLY matches the source data (numbers, names, dates).
+3. If the claim distorts, exaggerates, or misquotes the source — CORRECT it to match the research.
+4. Status: "verified" (matches research), "corrected" (fixed to match), or "unverifiable" (not found in research).
+
+LAYER B — SUPPORTING DATA CLAIMS:
+For each slide claim tagged as "supporting_data" (or general knowledge claims):
+1. Assess whether the claim is factually plausible based on your knowledge.
+2. Check for outdated statistics, wrong magnitudes, or common misconceptions.
+3. If inaccurate, replace with a verifiable alternative.
+4. Status: "verified", "corrected", or "flagged" (uncertain — needs human review).
+
+IMPORTANT:
+- Keep the same slide structure (title, body, footer, and claims if present)
+- Keep all text lowercase except ticker symbols and numbers
+- Keep every slide under 15 words for body text
+- Every slide must still contain a specific number, % or $
+- Maintain the punchy style
+
+Return your response as JSON:
+{{
+  "layer_a_report": [
+    {{
+      "slide": 1,
+      "claim": "the specific claim text",
+      "source_match": "the matching text from research (or 'not found')",
+      "status": "verified" or "corrected" or "unverifiable",
+      "notes": "what was checked or changed"
+    }}
+  ],
+  "layer_b_report": [
+    {{
+      "slide": 1,
+      "claim": "the specific claim text",
+      "status": "verified" or "corrected" or "flagged",
+      "notes": "what was checked or changed"
+    }}
+  ],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "...", "claims": [...]}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Layer 4: Conclusion Validation ────────────────────────────────────────────
+
+
+def validate_conclusion(
+    slides: list[dict],
+    research_facts: list[dict],
+    topic: str,
+    angle: str,
+) -> dict:
+    """Check that the verdict/takeaway logically follows from the evidence presented.
+
+    Returns dict with:
+        - "verdict_slide": which slide number is the verdict
+        - "evidence_used": list of facts the verdict relies on
+        - "logic_valid": bool — does the conclusion follow?
+        - "issues": list of logic gaps or unsupported leaps
+        - "corrected_slides": slides with verdict fixed if needed
+    """
+    prompt = f"""You are a logic and reasoning auditor for financial content.
+
+Topic: {topic}
+Angle: {angle}
+
+RESEARCH FACTS AVAILABLE:
+{json.dumps(research_facts, indent=2)}
+
+SLIDES:
+{json.dumps(slides, indent=2)}
+
+Your job: Validate that the VERDICT / TAKEAWAY slide logically follows from the evidence in the preceding slides.
+
+Check the following:
+1. IDENTIFY the verdict slide (usually second-to-last, the one with the main takeaway).
+2. LIST every piece of evidence presented in the data slides (slides 3 to N-2).
+3. CHECK: Does the verdict LOGICALLY follow from this evidence? Or does it make an unsupported leap?
+4. CHECK: Is the verdict too strong for the evidence? (e.g., "X will definitely happen" when data only shows a trend)
+5. CHECK: Does the verdict contradict any of the presented facts?
+6. CHECK: Is there evidence in the slides that the verdict ignores?
+
+If the conclusion has logic gaps:
+- Soften overconfident claims (e.g., "will" → "historically tends to")
+- Add a qualifying fact if the verdict needs more support
+- Ensure the verdict references the strongest evidence presented
+
+RULES:
+- Keep the same slide structure and count
+- Keep all text lowercase except tickers and numbers
+- Keep body under 15 words per slide
+- Maintain the claims tags if present
+
+Return your response as JSON:
+{{
+  "verdict_slide": 6,
+  "evidence_used": ["fact 1 from slides", "fact 2 from slides"],
+  "logic_valid": true or false,
+  "issues": ["description of any logic gap or unsupported leap"],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "..."}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Layer 5: Narrative Coherence ──────────────────────────────────────────────
+
+
+def check_narrative_coherence(
+    slides: list[dict],
+    topic: str,
+    angle: str,
+    hook: str,
+) -> dict:
+    """Ensure the story arc flows: news event → supporting context → insight → conclusion.
+
+    Returns dict with:
+        - "arc_analysis": assessment of the narrative flow
+        - "coherence_score": 1-10 rating
+        - "issues": list of flow problems
+        - "corrected_slides": slides reordered/rewritten for better flow
+    """
+    prompt = f"""You are a narrative editor specializing in short-form financial storytelling.
+
+Topic: {topic}
+Angle: {angle}
+Hook: {hook}
+
+SLIDES:
+{json.dumps(slides, indent=2)}
+
+Your job: Ensure the slide deck tells a COHERENT STORY with the correct narrative arc.
+
+CHECK EACH TRANSITION:
+1. HOOK (Slide 1) → RE-HOOK (Slide 2): Do they approach the same topic from complementary angles? Does the re-hook work as a standalone entry point?
+2. RE-HOOK → FIRST DATA SLIDE: Is the transition from hook to evidence smooth?
+3. DATA SLIDES (3 to N-2): Do they follow the arc: news event → supporting context → deeper insight → payoff?
+   - No two similar fact types should be adjacent (don't stack two comparisons or two trends)
+   - Each slide should feel like it NEEDS to come after the previous one
+   - The tension should BUILD — start with context, escalate to the surprising/important data
+4. DATA → VERDICT: Does the last data point naturally set up the takeaway?
+5. VERDICT → CTA: Does the CTA feel earned by the story?
+
+ALSO CHECK:
+- Does every slide connect back to the hook's promise? (No tangential slides)
+- Is there a clear "so what?" moment — the point where context becomes insight?
+- Would a reader feel satisfied at the end, or like something is missing?
+
+If the narrative has problems:
+- REORDER slides if the arc is wrong (e.g., the most surprising fact should build toward the end)
+- REWRITE transitions so each slide logically leads to the next
+- REMOVE or REPLACE any slide that breaks the narrative thread
+- Keep the same slide count
+
+RULES:
+- Keep all text lowercase except tickers and numbers
+- Keep body under 15 words per slide
+- Every slide must have a number, %, or $
+- Footer: short source attribution only, no hashtags, no emojis
+- Slide 1 title MUST remain the hook exactly as written
+
+Return your response as JSON:
+{{
+  "arc_analysis": "brief description of the current narrative arc",
+  "coherence_score": 8,
+  "issues": ["issue 1", "issue 2"],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "..."}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def strip_claim_tags(slides: list[dict]) -> list[dict]:
+    """Remove the 'claims' metadata from slides for final output."""
+    return [
+        {"title": s["title"], "body": s["body"], "footer": s.get("footer", "")}
+        for s in slides
+    ]
 
 
 def generate_tiktok_metadata(
