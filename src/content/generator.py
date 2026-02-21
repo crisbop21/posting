@@ -68,39 +68,41 @@ Slide structure:
 """
 
 
-def fact_check_news(news_text: str) -> dict:
-    """Fact-check news articles and flag any that seem inaccurate or outdated.
+def fact_check_news(news_text: str) -> list[dict]:
+    """Fact-check news articles and return corrected versions of any that are inaccurate.
 
-    Returns a dict with:
-        - "verified_news": cleaned news text with only verified articles
-        - "report": list of per-article verdicts
+    Returns a list of dicts (one per article), each with:
+        - "index": 1-based article number matching the input list
+        - "status": "verified" or "corrected"
+        - "corrected_title": factually accurate title (same as original if verified)
+        - "corrected_summary": factually accurate summary (same as original if verified)
+        - "reason": brief explanation of what was checked or changed
     """
     client = anthropic.Anthropic()
 
-    prompt = f"""You are a rigorous financial news fact-checker. Review each news article below
-and determine if it appears factually accurate and genuinely recent.
+    prompt = f"""You are a rigorous financial news fact-checker. Review each numbered article below.
 
 {news_text}
 
 For EACH article:
 1. Check if the headline and summary are consistent (no clickbait mismatch).
 2. Check if any specific claims (numbers, %, $, company names, events) seem plausible.
-3. Flag anything that looks like misinformation, outdated recycled news, or AI-generated spam.
+3. If an article has inaccurate claims, misleading framing, or outdated info — CORRECT it.
+   Rewrite the title and summary so they are factually accurate while keeping the same trending topic.
+4. If the article is accurate, keep the original title and summary as-is.
 
-Return your response as JSON:
-{{
-  "articles": [
-    {{
-      "index": 1,
-      "title": "original title",
-      "status": "verified" or "flagged",
-      "reason": "brief explanation"
-    }}
-  ],
-  "verified_news": "reformatted text containing ONLY the verified articles, numbered sequentially, in the same format as the input"
-}}
+Return your response as a JSON array — one object per article:
+[
+  {{
+    "index": 1,
+    "status": "verified" or "corrected",
+    "corrected_title": "factually accurate title (unchanged if verified)",
+    "corrected_summary": "factually accurate summary (unchanged if verified)",
+    "reason": "what was checked or what you fixed"
+  }}
+]
 
-Return ONLY the JSON, no other text."""
+Return ONLY the JSON array, no other text."""
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
