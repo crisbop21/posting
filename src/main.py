@@ -14,6 +14,11 @@ from src.content.generator import (
     generate_slide_content,
     fact_check_slides,
     generate_tiktok_metadata,
+    extract_news_facts,
+    layered_fact_check,
+    validate_conclusion,
+    check_narrative_coherence,
+    strip_claim_tags,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
@@ -70,6 +75,19 @@ def run(config_path: str = "config.yaml") -> None:
         print("No research data found. Check your network connection and config.")
         sys.exit(1)
 
+    # ── Layer 1: Extract structured facts ──────────────────────────────
+    print("\nLayer 1: Extracting structured facts from research...")
+    try:
+        research_facts = extract_news_facts(research_text)
+        print(f"  Extracted {len(research_facts)} verifiable facts.")
+        for fact in research_facts[:5]:
+            print(f"    [{fact.get('type')}] {fact.get('fact')} ({fact.get('source')})")
+        if len(research_facts) > 5:
+            print(f"    ... and {len(research_facts) - 5} more")
+    except Exception as exc:
+        print(f"  Facts extraction failed ({exc}) — continuing without grounding")
+        research_facts = []
+
     # ── Step 2: Suggest topics ────────────────────────────────────────
     print("\nStep 2: Suggesting topics...")
     topic_options = suggest_topics(research_text, audience)
@@ -98,8 +116,8 @@ def run(config_path: str = "config.yaml") -> None:
     chosen_hook = hook_options[0]
     print(f"\n  Auto-selected: {chosen_hook['hook']}")
 
-    # ── Step 4: Generate slide content ─────────────────────────────────
-    print(f"\nStep 4: Generating {slide_count} slides with Claude...")
+    # ── Layer 2: Generate fact-grounded slides ─────────────────────────
+    print(f"\nLayer 2: Generating {slide_count} fact-grounded slides...")
     slides = generate_slide_content(
         topic=chosen_topic["title"],
         angle=angle,
@@ -108,30 +126,90 @@ def run(config_path: str = "config.yaml") -> None:
         tone=tone,
         audience=audience,
         style_notes=style_notes,
+        research_facts=research_facts or None,
     )
     print(f"  Generated {len(slides)} slides.")
 
-    # ── Step 5: Review and improve engagement ─────────────────────────
-    print(f"\nStep 5: Reviewing engagement ({review_iterations} iterations)...")
+    # ── Engagement review ──────────────────────────────────────────────
+    print(f"\nReviewing engagement ({review_iterations} iterations)...")
     slides = review_and_improve(
         slides=slides,
         tone=tone,
         audience=audience,
         iterations=review_iterations,
+        hook=chosen_hook["hook"],
     )
     print("  Review complete.")
 
-    # ── Step 6: Fact-check ─────────────────────────────────────────────
-    print("\nStep 6: Fact-checking all claims...")
-    fc_result = fact_check_slides(slides, chosen_topic["title"], angle)
-    for item in fc_result.get("fact_check_report", []):
-        status = item.get("status", "unknown")
-        notes = item.get("notes", "")
-        print(f"  Slide {item.get('slide', '?')}: [{status}] {notes}")
-    slides = fc_result.get("corrected_slides", slides)
+    # ── Layer 3: Layered fact-check ────────────────────────────────────
+    if research_facts:
+        print("\nLayer 3: Layered fact-check (A: news-sourced, B: supporting data)...")
+        max_fc_rounds = 3
+        for fc_round in range(1, max_fc_rounds + 1):
+            print(f"  Round {fc_round}/{max_fc_rounds}...")
+            fc_result = layered_fact_check(
+                slides, research_text, research_facts,
+                chosen_topic["title"], angle,
+            )
+            layer_a = fc_result.get("layer_a_report", [])
+            layer_b = fc_result.get("layer_b_report", [])
+            slides = fc_result.get("corrected_slides", slides)
 
-    # ── Step 7: Generate TikTok metadata ───────────────────────────────
-    print("\nStep 7: Generating TikTok title & description...")
+            print(f"  Layer A (news-sourced): {len(layer_a)} claims checked")
+            for item in layer_a:
+                print(f"    Slide {item.get('slide', '?')}: [{item.get('status')}] {item.get('notes', '')}")
+            print(f"  Layer B (supporting data): {len(layer_b)} claims checked")
+            for item in layer_b:
+                print(f"    Slide {item.get('slide', '?')}: [{item.get('status')}] {item.get('notes', '')}")
+
+            has_issues = any(
+                item.get("status") in ("flagged", "unverifiable")
+                for item in layer_a + layer_b
+            )
+            if not has_issues:
+                print("  All claims verified.")
+                break
+    else:
+        print("\nFact-checking all claims (fallback)...")
+        fc_result = fact_check_slides(slides, chosen_topic["title"], angle)
+        for item in fc_result.get("fact_check_report", []):
+            status = item.get("status", "unknown")
+            notes = item.get("notes", "")
+            print(f"  Slide {item.get('slide', '?')}: [{status}] {notes}")
+        slides = fc_result.get("corrected_slides", slides)
+
+    # ── Layer 4: Conclusion validation ─────────────────────────────────
+    print("\nLayer 4: Validating conclusion logic...")
+    conclusion_result = validate_conclusion(
+        slides, research_facts or [], chosen_topic["title"], angle,
+    )
+    logic_valid = conclusion_result.get("logic_valid", True)
+    print(f"  Logic valid: {logic_valid}")
+    if not logic_valid:
+        for issue in conclusion_result.get("issues", []):
+            print(f"    Issue: {issue}")
+        print("  Conclusion corrected.")
+    slides = conclusion_result.get("corrected_slides", slides)
+
+    # ── Layer 5: Narrative coherence ───────────────────────────────────
+    print("\nLayer 5: Checking narrative coherence...")
+    coherence_result = check_narrative_coherence(
+        slides, chosen_topic["title"], angle, chosen_hook["hook"],
+    )
+    score = coherence_result.get("coherence_score", "?")
+    print(f"  Coherence score: {score}/10")
+    arc = coherence_result.get("arc_analysis", "")
+    if arc:
+        print(f"  Arc: {arc}")
+    for issue in coherence_result.get("issues", []):
+        print(f"    Fixed: {issue}")
+    slides = coherence_result.get("corrected_slides", slides)
+
+    # Strip claim tags for final output
+    slides = strip_claim_tags(slides)
+
+    # ── Generate TikTok metadata ───────────────────────────────────────
+    print("\nGenerating TikTok title & description...")
     metadata = generate_tiktok_metadata(
         slides=slides,
         topic=chosen_topic["title"],
@@ -142,8 +220,8 @@ def run(config_path: str = "config.yaml") -> None:
     print(f"  Description ({len(metadata.get('description', ''))} chars):")
     print(f"  {metadata.get('description', '')}")
 
-    # ── Step 8: Build PPTX ─────────────────────────────────────────────
-    print("\nStep 8: Building PPTX...")
+    # ── Build PPTX ─────────────────────────────────────────────────────
+    print("\nBuilding PPTX...")
     filepath = build_pptx(
         slides=slides,
         colors=colors,
