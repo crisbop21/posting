@@ -66,7 +66,17 @@ Please do the following:
    - Make sure data points are highlighted
    - Ensure slides tell a cohesive STORY — each slide must logically lead to the next
    - Data slides should build: context → tension → insight → payoff
+   - If the story isn't cohesive, you MAY reorder, merge, or restructure slides to improve flow
    - Footer: short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis
+
+FACTUAL INTEGRITY (critical — overrides engagement goals):
+   - NEVER change, replace, or introduce specific numbers, prices, percentages, or dollar amounts.
+     Your training data may be outdated. Only use the numbers already present in the slides.
+   - NEVER add a new statistic or data point that isn't already in the slides.
+   - If a slide has a vague claim (e.g. "rising sharply"), do NOT replace it with a specific number.
+   - You may improve WORDING and STRUCTURE but must preserve the FACTUAL CONTENT exactly.
+   - If a slide feels weak because it lacks a specific number, improve it through better
+     storytelling and framing — not by inventing data.
 
 Return your response as JSON with this structure:
 {{
