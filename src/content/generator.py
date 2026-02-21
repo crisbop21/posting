@@ -8,48 +8,67 @@ import anthropic
 from src.api import create_message
 
 HOOK_FORMULAS = """
-TOP 10 HOOK FORMULAS (ranked by proven performance — use these as templates):
+TOP 10 HOOK FORMULAS (ranked by research-backed engagement — use these as templates):
 
 1. DATA DIG — "[Stock/event] just [happened]. I analyzed [X] days/years of data to find out what happens every time."
-   Best performer: 4,700 views.
+   Why it works: Headlines with numbers generate 73% more social shares (Conductor study).
+   Numbers 10, 5, 3, 7 perform strongest. Use digits, not words ("10" not "ten").
 
 2. COMPARISON SHOCK — "[Thing A] is up [X%]. [Thing B] is up [Y%]. You think [belief]. You're wrong."
-   Best: 2,465 views.
+   Why it works: Transformation/comparison hooks tap aspirational desire by showing contrasting
+   endpoints. The brain craves the journey between A and B. Precise figures outperform rounded
+   estimates ("$2,847/month" > "about $3,000/month") per NP Digital analysis of 75,000+ articles.
 
-3. HIDDEN GEM LIST — "I [research effort] to find [X] [things] that [remarkable outcome] since [time span]."
-   Best: 1,390 views.
+3. CONTRARIAN CALL — "Stop [common action]. This is what [topic] actually [truth/needs]."
+   Why it works: Contrarian hooks activate the brain's threat-evaluation and belief-updating systems.
+   Top-performing finance hook category. CRITICAL: TikTok penalizes clickbait hooks that fail to
+   deliver — misleading content faces 60-80% reach reduction within 24 hours. Back bold takes with
+   cited data or credentials.
 
-4. CONTRARIAN CALL — "Stop [common action]. This is what [topic] actually [truth/needs]."
-   Best: 946 views.
+4. HIDDEN GEM LIST — "I [research effort] to find [X] [things] that [remarkable outcome] since [time span]."
+   Why it works: List formats with 5, 7, or 10 items perform best. Odd numbers outperform even
+   numbers (they feel more credible and specific). Sets clear, scannable expectation.
 
 5. COUNTDOWN TRIGGER — "Next week could [dramatic consequence]. These [X] events matter more than you think."
-   Best: 939 views.
+   Why it works: Creates urgency + combines a number with direct address. Headlines with numbers
+   perform 36% better than generic ones (NP Digital, 850,000+ social posts analyzed).
 
 6. AUTHORITY INSIDER — "[Institution/Billionaire] just [dramatic action]. [Bold claim about implications]."
-   Best: 832 views.
+   Why it works: Leverages credibility — trust is currency in finance content. Professionals with
+   real credentials attract significant followings. Must lead with evidence, not empty claims.
 
-7. OBSCURE STORY — "[Country/Company] [dramatic event X months ago]. The [name] trade explained."
-   Best: 813 views.
+7. QUESTION HOOK — "What's the 1 thing you wish you knew before [investing/buying/saving]?"
+   Why it works: 21% of readers prefer reader-addressing headlines (Conductor). Question hooks
+   drive comments and dwell time. Specificity is critical — vague questions underperform dramatically.
 
 8. EXPERIENCE PLAY — "After [X] years in [field]. Here is what they don't tell you about [topic]."
-   Best: 807 views.
+   Why it works: Insider knowledge framing ("I manage $10M in assets. Here's what I never tell
+   clients.") combines authority with an open loop. Authenticity outperforms polish in 2025-2026.
 
 9. SMART MONEY TRACKER — "[Billionaire/Fund] just put $[X]B into [stock] while everyone is selling."
-   Best: 715 views.
+   Why it works: Combines authority with contrarian framing. Uses precise dollar amounts (precise
+   figures are proven more credible than rounded ones). Creates natural open loop.
 
-10. PANIC REVERSAL — "[Stock/Market] is down [X%] you panic sell. Here is the [time] that save you."
-    Best: 479 views.
+10. IDENTITY HOOK — "This is for everyone who [specific financial situation/goal]. Here are [X] numbers you need."
+    Why it works: Identity-driven hooks make viewers feel personally targeted. Direct "you/your"
+    address boosts engagement by 21% (conversational tone study). Especially effective for niche
+    finance audiences.
 """
 
 HOOK_RULES = """
-HOOK RULES (based on pattern analysis):
-- Hooks with specific numbers get 49% more views (777 avg vs 523 without)
-- Hooks using "you/your" direct address get 26% more views (822 avg vs 652)
-- Mid-length hooks (11-18 words) are the sweet spot (750 avg views)
-- Data claim hooks ("analyzed", "data", "years", "%") average 733 views
-- NEVER use vague hooks without specific numbers (avg 200 views or less)
-- NEVER use generic hype language ("this stock went up 800%")
-- ALWAYS create an "open loop" — promise a specific reveal
+HOOK RULES (based on 2025-2026 platform data and research):
+- Hooks with specific numbers generate 73% more social shares (Conductor study) and perform 36% better than generic headlines (NP Digital, 75,000+ articles)
+- 36% of readers prefer number-based headlines — the #1 preferred headline type
+- Use digits not words ("10" beats "ten"), prefer odd numbers (feel more credible), and use precise figures ("$2,847" > "about $3,000")
+- Direct "you/your" address boosts engagement by 21% (conversational tone study) — 21% of readers prefer reader-addressing headlines
+- Keep hooks to 8-10 words max for carousel first slides (users scroll 3-4 posts per second, you get ~0.7 seconds of read time)
+- TikTok requires 70%+ completion rate to go viral (up from 50% in 2024) — hooks must deliver on their promise
+- Instagram carousels get 1.92% avg engagement vs 0.50% for Reels — design hooks for saves and shares, not likes
+- TikTok penalizes clickbait with 60-80% reach reduction — NEVER promise what the slides don't deliver
+- NEVER use vague hooks without specific numbers or data points
+- NEVER use generic hype language ("this stock went up 800%") without a cited source
+- ALWAYS create an "open loop" — promise a specific reveal backed by real data
+- For CTAs: switch to first-person ("start my free trial" > "start your free trial") — 90% higher click-through (Unbounce study)
 """
 
 SLIDE_RULES = """
