@@ -43,20 +43,24 @@ TOP 10 HOOK FORMULAS (use these structural templates):
 
 HOOK_RULES = """
 HOOK RULES (best practices for engagement):
-- Include a specific number, percentage, or dollar amount — concrete data outperforms vague claims
+- If a specific number, percentage, or dollar amount is available from the topic/angle, USE IT — concrete data outperforms vague claims
+- If NO verified number is available, use directional language ("surging", "at record levels", "plummeting") — do NOT invent a number
 - Use "you/your" direct address to make it personal
 - Keep hooks 11-18 words — long enough for substance, short enough to scan
-- Use data-signalling words ("analyzed", "data", "years", "%") to imply research
-- NEVER use vague hooks without specific numbers
+- Use data-signalling words ("analyzed", "data", "years") to imply research
+- NEVER fabricate specific numbers, prices, or percentages that aren't in the topic or angle
 - NEVER use generic hype language ("this stock went up 800%")
 - ALWAYS create an "open loop" — promise a specific reveal
+- Accuracy over impact: a vague but truthful hook is ALWAYS better than a specific but wrong one
 """
 
 SLIDE_RULES = """
 SLIDE RULES (strict — follow exactly):
 - Maximum 6-8 slides per carousel.
 - Each slide: ONE idea, ONE sentence, under 15 words.
-- Every slide MUST have a specific number, percentage, or dollar amount.
+- Data slides SHOULD have a specific number, percentage, or dollar amount — but ONLY if the data
+  is verified from research. If no verified number is available, use directional language
+  (e.g. "rising sharply", "near all-time highs") instead of making one up.
 - Slide 1 = Hook. Slide 2 = Re-hook (works standalone for mid-scroll entry). Final slide = CTA.
 - No filler slides. Every slide must make the viewer want to swipe.
 - Text style: all lowercase except ticker symbols and numbers.
@@ -67,6 +71,8 @@ Slide structure:
 - Slides 3-N: Data — one key fact per slide, comparative or surprising
 - Second-to-last slide: Verdict — the takeaway in one sentence
 - Last slide: CTA — "save this", "comment below", "follow for update"
+- This structure is a GUIDELINE. If the story flows better with a different order or fewer data
+  slides, adapt it. Cohesion matters more than rigid structure.
 
 STORYTELLING (critical):
 - The slides MUST tell a cohesive story with a clear narrative arc.
@@ -74,6 +80,14 @@ STORYTELLING (critical):
 - Structure the data slides as a build-up: context → tension → insight → payoff.
 - Never repeat the same type of fact back-to-back; alternate between comparison, trend, and surprise.
 - The verdict slide should feel like a satisfying conclusion to the story, not a random opinion.
+- If the available facts don't fit the standard structure, CHANGE THE STRUCTURE to fit the facts.
+  Never force facts into a structure that makes the story feel disconnected.
+
+FACTUAL ACCURACY (overrides all other rules):
+- Accuracy always beats specificity. A slide with directional language is better than one with a wrong number.
+- NEVER invent, guess, or round numbers that aren't from verified research.
+- If you don't have enough verified data points for the requested slide count, reduce the number of
+  data slides rather than filling them with made-up stats.
 
 FOOTER RULES:
 - Footer is a SHORT source attribution (e.g. "source: bloomberg", "data: fed reserve", "per SEC filing").
@@ -219,14 +233,20 @@ Angle / key information: {angle}
 {HOOK_RULES}
 
 Generate exactly 10 different hook options for the opening slide of a slide deck on this topic.
-Each hook MUST follow one of the 10 proven formulas above. Use a different formula for each hook.
-Every hook MUST include a specific number, percentage, or dollar amount.
+Each hook MUST follow one of the 10 structural formulas above. Use a different formula for each hook.
 Every hook MUST be 11-18 words long (the sweet spot).
 Every hook MUST use "you/your" direct address where possible.
 Every hook MUST create an open loop (promise a reveal).
 
+FACTUAL ACCURACY (critical):
+- If the topic/angle contains specific numbers, percentages, or dollar amounts — USE them in hooks.
+- If NO specific number is available, use directional/descriptive language instead (e.g. "surging",
+  "at historic lows", "quietly building"). Do NOT invent a specific number.
+- NEVER fabricate a price, percentage, or statistic. A truthful hook without a number is better
+  than a hook with a made-up number.
+
 Return your response as a JSON array of 10 objects, each with:
-- "hook": The hook text (11-18 words, must include a specific number)
+- "hook": The hook text (11-18 words, include a specific number ONLY if one is available from the topic/angle)
 - "style": The formula name used (e.g. "Data Dig", "Comparison Shock", "Hidden Gem List", etc.)
 
 Return ONLY the JSON array, no other text."""
@@ -303,22 +323,31 @@ Opening hook (use this EXACTLY as the first slide title): {hook}
 STRICT REQUIREMENTS:
 - Slide 1 title MUST be the hook above (copy it exactly)
 - Slide 2 MUST be a re-hook — a standalone entry point with a different angle on the same topic
-- Slides 3 to {slide_count - 2} MUST each contain one key data fact (number, %, or $)
+- Data slides SHOULD each contain one key data fact — but ONLY use verified numbers from the research
+- If you don't have enough verified facts for slides 3 to {slide_count - 2}, use fewer data slides
+  or use directional language ("rising sharply", "outpacing rivals") instead of fabricating numbers
 - Slide {slide_count - 1} MUST be the verdict — one-sentence takeaway
 - Slide {slide_count} MUST be a CTA ("save this", "comment below", "follow for more")
 - ALL text must be lowercase except ticker symbols ($AAPL, $BTC) and numbers
-- Each slide body: ONE sentence, under 15 words, must include a number/% or $
+- Each slide body: ONE sentence, under 15 words
 - No filler. Every slide must make the viewer want to swipe.
 
-STORYTELLING:
+FACTUAL ACCURACY (overrides everything):
+- NEVER invent a specific price, percentage, or dollar amount that is not in the research facts.
+- If a data point is missing, use directional or comparative language instead.
+- It is BETTER to have fewer slides than to fill slides with fabricated numbers.
+
+STORYTELLING & COHESION:
 - The slides must tell ONE cohesive story — each slide builds on the previous.
 - Data slides should follow: context → tension → insight → payoff.
 - Never repeat the same type of fact back-to-back; alternate comparison, trend, and surprise.
 - A reader who sees slides 1-N should feel like they followed a narrative, not read a list.
+- If the available verified facts don't fit the standard slide structure, CHANGE THE STRUCTURE
+  to fit the facts. Cohesion always beats rigid formatting.
 
 Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers/numbers)
-- "body": One sentence of content (under 15 words, must include a number)
+- "body": One sentence of content (under 15 words, include a verified number if available)
 - "footer": Short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis. Leave blank if no source.{claims_instruction}
 {claims_schema}
 Return ONLY the JSON array, no other text."""
@@ -350,21 +379,30 @@ Here are the current slides:
 
 Your job: ONE final pass to maximize the value a reader gets from this deck.
 Ask yourself for each slide:
-- Could a vague claim be replaced with a sharper, more specific number?
-- Is there an actionable insight missing that the reader could use TODAY?
 - Does this slide teach something or just state the obvious?
 - Does the narrative arc build tension and deliver a satisfying payoff?
 - Is every slide earning its place — would the deck be weaker without it?
+- Is the overall story cohesive — does each slide naturally lead to the next?
+
+COHESION CHECK:
+- If the story feels disconnected, you MAY reorder, merge, or restructure slides.
+- If a slide breaks the narrative flow, rewrite it to connect to the surrounding slides.
+- You may REMOVE a slide if it damages cohesion (return fewer slides).
 
 RULES:
-- Keep the same number of slides, same structure (title, body, footer).
+- Keep the same structure (title, body, footer) for each slide.
 - Keep all text lowercase except tickers and numbers.
-- Keep body under 15 words per slide. Every slide must have a number/% or $.
+- Keep body under 15 words per slide.
 - Footer: short source attribution only. No hashtags, no emojis.
 - Do NOT add filler or fluff. Only improve — never dilute.
 - If a slide is already strong, leave it unchanged.
+
+FACTUAL INTEGRITY (overrides all other rules):
 - NEVER replace a number with a different specific number from your own knowledge.
-  Your training data may be outdated. Only sharpen numbers that already exist in the slides.
+  Your training data may be outdated. Only use numbers that already exist in the slides.
+- NEVER add new statistics, prices, or percentages that aren't already in the slides.
+- If a slide uses vague language (e.g. "rising sharply"), do NOT replace it with a specific
+  number — improve the wording and framing instead.
 - If you are unsure whether a specific price, percentage, or figure is current, leave it as-is.
 
 Return your response as a JSON array of the improved slides:
@@ -646,14 +684,18 @@ If the narrative has problems:
 - REORDER slides if the arc is wrong (e.g., the most surprising fact should build toward the end)
 - REWRITE transitions so each slide logically leads to the next
 - REMOVE or REPLACE any slide that breaks the narrative thread
-- Keep the same slide count
+- You MAY change the number of slides if removing a disconnected slide improves the story
+- You MAY restructure the deck (merge slides, change order, split a slide) to improve cohesion
+- Cohesion is MORE important than keeping a rigid slide count
 
 RULES:
 - Keep all text lowercase except tickers and numbers
 - Keep body under 15 words per slide
-- Every slide must have a number, %, or $
+- Data slides should have a number, %, or $ — but ONLY if verified. Use directional language if not.
 - Footer: short source attribution only, no hashtags, no emojis
 - Slide 1 title MUST remain the hook exactly as written
+- NEVER introduce new numbers, prices, or statistics that aren't already in the slides.
+  You can reword, reorder, or remove — but never add unverified data.
 
 Return your response as JSON:
 {{
