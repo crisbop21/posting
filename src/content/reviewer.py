@@ -11,17 +11,16 @@ def review_and_improve(
     tone: str,
     audience: str,
     iterations: int = 2,
+    hook: str = "",
 ) -> list[dict]:
     """Run multiple review iterations on slide content to maximize engagement.
-
-    Each iteration asks Claude to score the slides, identify weaknesses,
-    and produce an improved version.
 
     Args:
         slides: List of slide dicts with 'title', 'body', 'footer'.
         tone: Desired tone.
         audience: Target audience description.
         iterations: Number of review/improve cycles to run.
+        hook: The opening hook text — slides must deliver on this promise.
 
     Returns:
         The final improved list of slide dicts.
@@ -29,12 +28,23 @@ def review_and_improve(
     client = anthropic.Anthropic()
     current_slides = slides
 
+    hook_context = ""
+    if hook:
+        hook_context = f"""
+HOOK ALIGNMENT (critical):
+The opening hook is: "{hook}"
+- Every slide must feel connected to the promise made in this hook.
+- The narrative must build toward delivering on the hook's open loop.
+- Slide 1 title MUST remain the hook exactly as written above.
+- If any slide feels disconnected from the hook's promise, rewrite it to stay on thread.
+"""
+
     for i in range(iterations):
         print(f"  [review] Iteration {i + 1}/{iterations}...")
 
         review_prompt = f"""You are a viral content strategist reviewing a finance slide deck for {audience}.
 The tone should be: {tone}.
-
+{hook_context}
 Here are the current slides:
 
 {json.dumps(current_slides, indent=2)}

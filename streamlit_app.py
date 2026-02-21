@@ -377,12 +377,13 @@ elif st.session_state.step == 4:
             # 2) Review iterations
             if review_iterations > 0:
                 with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-                    progress.progress(35, text="Reviewing and improving engagement...")
+                    progress.progress(25, text="Reviewing and improving engagement...")
                     slides = review_and_improve(
                         slides=slides,
                         tone=tone,
                         audience=audience,
                         iterations=review_iterations,
+                        hook=hook["hook"],
                     )
 
             # 3) Fact-check (iterate until no slides are flagged, max 3 rounds)
@@ -420,9 +421,20 @@ elif st.session_state.step == 4:
                     audience=audience,
                 )
 
-            # 5) Generate TikTok metadata
+            # 5) Final engagement polish — 3 iterations with hook alignment
+            with st.spinner("Final engagement polish (3 iterations)..."):
+                progress.progress(72, text="Engagement polish 1/3...")
+                slides = review_and_improve(
+                    slides=slides,
+                    tone=tone,
+                    audience=audience,
+                    iterations=3,
+                    hook=hook["hook"],
+                )
+
+            # 6) Generate TikTok metadata
             with st.spinner("Generating TikTok title & description..."):
-                progress.progress(75, text="Generating TikTok metadata...")
+                progress.progress(82, text="Generating TikTok metadata...")
                 metadata = generate_tiktok_metadata(
                     slides=slides,
                     topic=topic["title"],
@@ -461,13 +473,41 @@ elif st.session_state.step == 4:
 
     # ── Slide Preview ──────────────────────────────────────────────────────
     st.subheader("Slide Preview")
+
+    # Character count guidance
+    BODY_MIN, BODY_IDEAL, BODY_MAX = 20, 50, 90
+    st.caption(
+        f"Body length guide: :red[< {BODY_MIN} too short] · "
+        f":green[{BODY_MIN}–{BODY_MAX} ideal] · "
+        f":red[> {BODY_MAX} too long]"
+    )
+
     for i, slide in enumerate(slides):
         with st.container(border=True):
             slide_cols = st.columns([1, 12])
             slide_cols[0].markdown(f"**{i + 1}**")
             slide_cols[1].markdown(f"### {slide.get('title', '')}")
             slide_cols[1].write(slide.get("body", ""))
-            slide_cols[1].caption(slide.get("footer", ""))
+            if slide.get("footer"):
+                slide_cols[1].caption(slide.get("footer", ""))
+
+            # Character count bar for body text
+            body_text = slide.get("body", "")
+            char_count = len(body_text)
+            bar_value = min(char_count / BODY_MAX, 1.0)
+
+            if char_count < BODY_MIN:
+                color = "red"
+                label = f":red[{char_count} chars — too short]"
+            elif char_count <= BODY_MAX:
+                color = "green"
+                label = f":green[{char_count} chars]"
+            else:
+                color = "red"
+                label = f":red[{char_count} chars — too long]"
+
+            slide_cols[1].progress(bar_value)
+            slide_cols[1].caption(label)
 
     # ── Fact-Check Report ──────────────────────────────────────────────────
     if fact_report:
