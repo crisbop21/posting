@@ -13,6 +13,11 @@ from src.content.generator import (
     suggest_topics,
     generate_hooks,
     generate_slide_content,
+    extract_news_facts,
+    fact_check_news_claims,
+    fact_check_supporting_claims,
+    validate_conclusions,
+    check_narrative_coherence,
     add_value_pass,
     fact_check_slides,
     fact_check_news,
@@ -136,6 +141,7 @@ for key, default in {
     "angle": "",
     "hook_options": [],
     "selected_hook": None,
+    "key_facts": [],
     "slides": [],
     "fact_check_report": [],
     "tiktok_metadata": None,
@@ -172,9 +178,9 @@ st.divider()
 if st.session_state.step > 1:
     if st.button("Start Over"):
         for key in ["step", "research_text", "topic_options", "selected_topic",
-                     "angle", "hook_options", "selected_hook", "slides",
-                     "fact_check_report", "tiktok_metadata", "pptx_path",
-                     "png_paths"]:
+                     "angle", "hook_options", "selected_hook", "key_facts",
+                     "slides", "fact_check_report", "tiktok_metadata",
+                     "pptx_path", "png_paths"]:
             del st.session_state[key]
         st.rerun()
 
@@ -364,10 +370,18 @@ elif st.session_state.step == 4:
 
         try:
             progress = st.progress(0, text="Generating slides...")
+            research_text = st.session_state.research_text
 
-            # 1) Generate slides
+            # 0) Extract structured facts from research
+            with st.spinner("Extracting facts from research..."):
+                progress.progress(5, text="Extracting key facts...")
+                key_facts = extract_news_facts(research_text)
+                st.session_state.key_facts = key_facts
+                st.toast(f"Extracted {len(key_facts)} verified facts from research")
+
+            # 1) Generate slides grounded in facts
             with st.spinner("Claude is writing your slides..."):
-                progress.progress(15, text="Generating slides with Claude...")
+                progress.progress(12, text="Generating grounded slides...")
                 slides = generate_slide_content(
                     topic=topic["title"],
                     angle=angle,
@@ -376,12 +390,14 @@ elif st.session_state.step == 4:
                     tone=tone,
                     audience=audience,
                     style_notes=style_notes,
+                    key_facts=key_facts,
+                    research_text=research_text,
                 )
 
             # 2) Review iterations
             if review_iterations > 0:
                 with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-                    progress.progress(25, text="Reviewing and improving engagement...")
+                    progress.progress(22, text="Reviewing and improving engagement...")
                     slides = review_and_improve(
                         slides=slides,
                         tone=tone,
@@ -390,34 +406,54 @@ elif st.session_state.step == 4:
                         hook=hook["hook"],
                     )
 
-            # 3) Fact-check (iterate until no slides are flagged, max 3 rounds)
-            max_fc_rounds = 3
-            for fc_round in range(1, max_fc_rounds + 1):
-                with st.spinner(f"Fact-checking all claims (round {fc_round})..."):
-                    progress.progress(
-                        50 + fc_round * 5,
-                        text=f"Fact-checking slides (round {fc_round}/{max_fc_rounds})...",
-                    )
-                    fc_result = fact_check_slides(slides, topic["title"], angle)
-                    fact_report = fc_result.get("fact_check_report", [])
-                    slides = fc_result.get("corrected_slides", slides)
+            # 3A) Fact-check news-sourced claims against research
+            with st.spinner("Checking news-sourced claims against research..."):
+                progress.progress(32, text="Layer A: verifying news claims...")
+                fc_news = fact_check_news_claims(slides, key_facts, research_text)
+                news_report = fc_news.get("fact_check_report", [])
+                slides = fc_news.get("corrected_slides", slides)
+                news_issues = [r for r in news_report if r.get("status") in ("corrected", "flagged")]
+                if news_issues:
+                    st.toast(f"Fixed {len(news_issues)} news-sourced claim(s)")
 
-                has_flagged = any(
-                    item.get("status") == "flagged" for item in fact_report
-                )
-                if not has_flagged:
-                    break
+            # 3B) Fact-check supporting data claims independently
+            with st.spinner("Checking supporting data claims..."):
+                progress.progress(40, text="Layer B: verifying supporting data...")
+                fc_support = fact_check_supporting_claims(slides, topic["title"])
+                support_report = fc_support.get("fact_check_report", [])
+                slides = fc_support.get("corrected_slides", slides)
+                support_issues = [r for r in support_report if r.get("status") in ("corrected", "flagged")]
+                if support_issues:
+                    st.toast(f"Fixed {len(support_issues)} supporting claim(s)")
 
-                if fc_round < max_fc_rounds:
-                    st.toast(
-                        f"Round {fc_round}: some claims still flagged — re-checking..."
-                    )
-
+            # Merge fact-check reports
+            fact_report = [
+                r for r in news_report + support_report
+                if r.get("status") != "skipped"
+            ]
             st.session_state.fact_check_report = fact_report
 
-            # 4) Value-add pass — maximize reader insight
-            with st.spinner("Final pass — maximizing reader value..."):
-                progress.progress(68, text="Adding sharper insights...")
+            # 4) Validate conclusions
+            with st.spinner("Validating conclusions..."):
+                progress.progress(50, text="Checking logic & conclusions...")
+                vc_result = validate_conclusions(
+                    slides, key_facts, topic["title"], hook["hook"],
+                )
+                if not vc_result.get("valid", True):
+                    issues = vc_result.get("issues", [])
+                    st.toast(f"Fixed {len(issues)} logical issue(s) in conclusions")
+                slides = vc_result.get("corrected_slides", slides)
+
+            # 5) Narrative coherence check
+            with st.spinner("Checking narrative coherence..."):
+                progress.progress(58, text="Verifying story arc...")
+                slides = check_narrative_coherence(
+                    slides, hook["hook"], topic["title"],
+                )
+
+            # 6) Value-add pass
+            with st.spinner("Maximizing reader value..."):
+                progress.progress(64, text="Adding sharper insights...")
                 slides = add_value_pass(
                     slides=slides,
                     topic=topic["title"],
@@ -425,9 +461,9 @@ elif st.session_state.step == 4:
                     audience=audience,
                 )
 
-            # 5) Final engagement polish — 3 iterations with hook alignment
+            # 7) Final engagement polish — 3 iterations with hook alignment
             with st.spinner("Final engagement polish (3 iterations)..."):
-                progress.progress(72, text="Engagement polish 1/3...")
+                progress.progress(70, text="Engagement polish...")
                 slides = review_and_improve(
                     slides=slides,
                     tone=tone,
