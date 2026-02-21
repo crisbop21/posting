@@ -55,6 +55,9 @@ Please do the following:
    - Ensure the first slide is the strongest hook
    - Add urgency or FOMO where appropriate (without being clickbait)
    - Make sure data points are highlighted
+   - Ensure slides tell a cohesive STORY — each slide must logically lead to the next
+   - Data slides should build: context → tension → insight → payoff
+   - Footer: short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis
 
 Return your response as JSON with this structure:
 {{

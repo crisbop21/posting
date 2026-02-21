@@ -12,6 +12,7 @@ from src.content.generator import (
     suggest_topics,
     generate_hooks,
     generate_slide_content,
+    add_value_pass,
     fact_check_slides,
     fact_check_news,
     generate_tiktok_metadata,
@@ -81,6 +82,9 @@ title_color = col2.color_picker("Title", colors_cfg.get("title", "#FFFFFF"))
 body_color = col1.color_picker("Body", colors_cfg.get("body", "#C9D1D9"))
 accent_color = col2.color_picker("Accent", colors_cfg.get("accent", "#58A6FF"))
 highlight_color = col1.color_picker("Highlight", colors_cfg.get("highlight", "#F0883E"))
+
+st.sidebar.subheader("Branding")
+handle = st.sidebar.text_input("Account handle", slides_cfg.get("handle", "@posting"))
 
 st.sidebar.subheader("Research")
 available_sources = ["news", "reddit"]
@@ -406,7 +410,17 @@ elif st.session_state.step == 4:
 
             st.session_state.fact_check_report = fact_report
 
-            # 4) Generate TikTok metadata
+            # 4) Value-add pass — maximize reader insight
+            with st.spinner("Final pass — maximizing reader value..."):
+                progress.progress(68, text="Adding sharper insights...")
+                slides = add_value_pass(
+                    slides=slides,
+                    topic=topic["title"],
+                    angle=angle,
+                    audience=audience,
+                )
+
+            # 5) Generate TikTok metadata
             with st.spinner("Generating TikTok title & description..."):
                 progress.progress(75, text="Generating TikTok metadata...")
                 metadata = generate_tiktok_metadata(
@@ -417,13 +431,14 @@ elif st.session_state.step == 4:
                 )
                 st.session_state.tiktok_metadata = metadata
 
-            # 5) Build PPTX
+            # 6) Build PPTX
             progress.progress(90, text="Building PPTX...")
             filepath = build_pptx(
                 slides=slides,
                 colors=colors,
                 aspect_ratio=aspect_ratio_val,
                 output_dir="./output",
+                handle=handle,
             )
 
             progress.progress(100, text="Done!")
