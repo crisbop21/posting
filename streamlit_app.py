@@ -246,6 +246,9 @@ if st.session_state.step == 1:
         except anthropic.AuthenticationError:
             st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
             st.stop()
+        except anthropic.APIError as exc:
+            st.error(f"API error: {exc}")
+            st.stop()
 
         st.rerun()
 
@@ -312,6 +315,9 @@ elif st.session_state.step == 3:
                 st.rerun()
         except anthropic.AuthenticationError:
             st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+            st.stop()
+        except anthropic.APIError as exc:
+            st.error(f"API error: {exc}")
             st.stop()
 
     hooks = st.session_state.hook_options
@@ -476,6 +482,9 @@ elif st.session_state.step == 4:
 
         except anthropic.AuthenticationError:
             st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+            st.stop()
+        except anthropic.APIError as exc:
+            st.error(f"API error: {exc}")
             st.stop()
 
     # ── Results ────────────────────────────────────────────────────────────

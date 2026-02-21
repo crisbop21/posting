@@ -3,7 +3,7 @@
 import json
 import re
 
-import anthropic
+from src.api import create_message
 
 
 def review_and_improve(
@@ -25,7 +25,6 @@ def review_and_improve(
     Returns:
         The final improved list of slide dicts.
     """
-    client = anthropic.Anthropic()
     current_slides = slides
 
     hook_context = ""
@@ -87,7 +86,7 @@ Return your response as JSON with this structure:
 
 Return ONLY the JSON, no other text."""
 
-        response = client.messages.create(
+        response = create_message(
             model="claude-sonnet-4-20250514",
             max_tokens=4096,
             messages=[{"role": "user", "content": review_prompt}],
