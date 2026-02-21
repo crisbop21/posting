@@ -1,7 +1,7 @@
 """Fetch trending finance topics from Google News RSS and other free news sources."""
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import feedparser
@@ -16,14 +16,23 @@ class NewsItem:
     summary: str
 
 
-# Google News RSS feeds for finance topics
-NEWS_FEEDS = {
-    "stocks": "https://news.google.com/rss/search?q=stock+market+today&hl=en-US&gl=US&ceid=US:en",
-    "crypto": "https://news.google.com/rss/search?q=cryptocurrency+bitcoin&hl=en-US&gl=US&ceid=US:en",
-    "earnings": "https://news.google.com/rss/search?q=earnings+report+quarterly&hl=en-US&gl=US&ceid=US:en",
-    "market trends": "https://news.google.com/rss/search?q=market+trends+finance&hl=en-US&gl=US&ceid=US:en",
-    "economic indicators": "https://news.google.com/rss/search?q=economic+indicators+GDP+inflation&hl=en-US&gl=US&ceid=US:en",
+# Base search queries per topic (without date filter — added dynamically)
+_TOPIC_QUERIES = {
+    "stocks": "stock+market+today",
+    "crypto": "cryptocurrency+bitcoin",
+    "earnings": "earnings+report+quarterly",
+    "market trends": "market+trends+finance",
+    "economic indicators": "economic+indicators+GDP+inflation",
 }
+
+_RSS_BASE = "https://news.google.com/rss/search"
+_RSS_PARAMS = "hl=en-US&gl=US&ceid=US:en"
+
+
+def _build_feed_url(query: str) -> str:
+    """Build a Google News RSS URL with an after: date filter for the last 2 days."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=2)).strftime("%Y-%m-%d")
+    return f"{_RSS_BASE}?q={query}+after:{cutoff}&{_RSS_PARAMS}"
 
 
 def _is_within_48_hours(published_str: str) -> bool:
@@ -38,7 +47,6 @@ def _is_within_48_hours(published_str: str) -> bool:
         age = now - pub_dt
         return age.total_seconds() <= 48 * 3600
     except Exception:
-        # If we can't parse the date, exclude the article
         return False
 
 
@@ -60,10 +68,10 @@ def fetch_news_topics(
     items: list[NewsItem] = []
 
     for topic in topics:
-        feed_url = NEWS_FEEDS.get(topic)
-        if not feed_url:
-            query = topic.replace(" ", "+")
-            feed_url = f"https://news.google.com/rss/search?q={query}+finance&hl=en-US&gl=US&ceid=US:en"
+        query = _TOPIC_QUERIES.get(topic)
+        if not query:
+            query = topic.replace(" ", "+") + "+finance"
+        feed_url = _build_feed_url(query)
 
         try:
             feed = feedparser.parse(feed_url)
