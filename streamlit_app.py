@@ -189,33 +189,31 @@ if st.session_state.step == 1:
                 if news_items:
                     st.toast(f"Found {len(news_items)} recent articles — fact-checking...")
 
-                    # Fact-check news before using it
+                    # Fact-check and correct news before using it
                     raw_news = format_news_for_prompt(news_items)
                     try:
                         verdicts = fact_check_news(raw_news)
-                        flagged_indices = {
-                            v["index"] for v in verdicts
-                            if v.get("status") == "flagged"
+                        corrections = {
+                            v["index"]: v for v in verdicts
+                            if v.get("status") == "corrected"
                         }
-                        if flagged_indices:
-                            verified_items = [
-                                item for i, item in enumerate(news_items, 1)
-                                if i not in flagged_indices
-                            ]
+                        for idx, verdict in corrections.items():
+                            if 1 <= idx <= len(news_items):
+                                item = news_items[idx - 1]
+                                item.title = verdict.get("corrected_title", item.title)
+                                item.summary = verdict.get("corrected_summary", item.summary)
+
+                        if corrections:
                             st.toast(
-                                f"Removed {len(flagged_indices)} flagged article(s) — "
-                                f"keeping {len(verified_items)} verified"
+                                f"Corrected {len(corrections)} article(s) — "
+                                f"all {len(news_items)} now factual"
                             )
                         else:
-                            verified_items = news_items
                             st.toast(f"All {len(news_items)} articles verified")
                     except Exception:
-                        # If fact-check fails, use all articles rather than blocking
-                        verified_items = news_items
-                        st.toast("Fact-check unavailable — using all articles")
+                        st.toast("Fact-check unavailable — using articles as-is")
 
-                    if verified_items:
-                        research_parts.append(format_news_for_prompt(verified_items))
+                    research_parts.append(format_news_for_prompt(news_items))
                 else:
                     st.toast("No news articles found in the last 48 hours")
 
