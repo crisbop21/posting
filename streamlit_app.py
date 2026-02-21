@@ -187,24 +187,35 @@ if st.session_state.step == 1:
             if "news" in sources:
                 news_items = fetch_news_topics(topics)
                 if news_items:
-                    raw_news = format_news_for_prompt(news_items)
                     st.toast(f"Found {len(news_items)} recent articles — fact-checking...")
 
                     # Fact-check news before using it
-                    fc_result = fact_check_news(raw_news)
-                    verified_news = fc_result.get("verified_news", raw_news)
-                    fc_articles = fc_result.get("articles", [])
-                    flagged = [a for a in fc_articles if a.get("status") == "flagged"]
+                    raw_news = format_news_for_prompt(news_items)
+                    try:
+                        verdicts = fact_check_news(raw_news)
+                        flagged_indices = {
+                            v["index"] for v in verdicts
+                            if v.get("status") == "flagged"
+                        }
+                        if flagged_indices:
+                            verified_items = [
+                                item for i, item in enumerate(news_items, 1)
+                                if i not in flagged_indices
+                            ]
+                            st.toast(
+                                f"Removed {len(flagged_indices)} flagged article(s) — "
+                                f"keeping {len(verified_items)} verified"
+                            )
+                        else:
+                            verified_items = news_items
+                            st.toast(f"All {len(news_items)} articles verified")
+                    except Exception:
+                        # If fact-check fails, use all articles rather than blocking
+                        verified_items = news_items
+                        st.toast("Fact-check unavailable — using all articles")
 
-                    if flagged:
-                        st.toast(
-                            f"Removed {len(flagged)} flagged article(s) — "
-                            f"keeping {len(fc_articles) - len(flagged)} verified"
-                        )
-                    else:
-                        st.toast(f"All {len(fc_articles)} articles verified")
-
-                    research_parts.append(verified_news)
+                    if verified_items:
+                        research_parts.append(format_news_for_prompt(verified_items))
                 else:
                     st.toast("No news articles found in the last 48 hours")
 
