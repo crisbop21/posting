@@ -126,6 +126,55 @@ Return ONLY the JSON array, no other text."""
     return _parse_json(text)
 
 
+# ── Layer 1: Extract structured facts from research ──────────────────────────
+
+def extract_news_facts(research_text: str) -> list[dict]:
+    """Extract structured facts from research text.
+
+    Returns a list of dicts, each with:
+        - "fact": the specific claim or data point
+        - "source": where it came from (e.g. "Bloomberg", "r/wallstreetbets")
+        - "date": when it was published/reported
+        - "type": "news_event" | "data_point" | "market_move" | "opinion"
+    """
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a financial research analyst. Extract every specific, verifiable fact from the research below.
+
+{research_text}
+
+For each fact, capture:
+1. The exact claim (with specific numbers, %, $, dates, company names).
+2. The source it came from.
+3. The date it was reported.
+4. The type: "news_event" (something that happened), "data_point" (a statistic or metric),
+   "market_move" (price/index change), or "opinion" (analyst view or prediction).
+
+Be exhaustive — capture every number, percentage, dollar amount, date, and named entity.
+Do NOT add facts that aren't in the research. Only extract what's actually there.
+
+Return a JSON array:
+[
+  {{
+    "fact": "S&P 500 dropped 3.2% on Feb 19, 2026",
+    "source": "Bloomberg",
+    "date": "2026-02-19",
+    "type": "market_move"
+  }}
+]
+
+Return ONLY the JSON array, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
 def suggest_topics(research_text: str, audience: str) -> list[dict]:
     """Analyse research data and return 10 potential topic ideas."""
     client = anthropic.Anthropic()
@@ -204,9 +253,31 @@ def generate_slide_content(
     tone: str,
     audience: str,
     style_notes: str,
+    key_facts: list[dict] | None = None,
+    research_text: str = "",
 ) -> list[dict]:
-    """Generate structured slide content using strict slide rules."""
+    """Generate structured slide content grounded in research facts."""
     client = anthropic.Anthropic()
+
+    facts_block = ""
+    if key_facts:
+        facts_block = f"""
+VERIFIED SOURCE FACTS (use these as your primary data):
+{json.dumps(key_facts, indent=2)}
+
+GROUNDING RULES:
+- Data slides MUST use facts from the list above wherever possible.
+- If you add a supporting claim not in the list, tag it as "claim_source": "supporting_data".
+- Facts from the list should be tagged as "claim_source": "news_source".
+- Do NOT invent numbers. Every number must come from the facts list or be a widely known statistic.
+"""
+
+    research_block = ""
+    if research_text:
+        research_block = f"""
+ORIGINAL RESEARCH CONTEXT (for tone and narrative — facts above take priority):
+{research_text}
+"""
 
     system_prompt = f"""You are an expert social media content creator specializing in finance.
 You create slide decks that go viral on TikTok and Instagram.
@@ -224,7 +295,7 @@ Style guidelines:
 Topic: {topic}
 Angle / key information: {angle}
 Opening hook (use this EXACTLY as the first slide title): {hook}
-
+{facts_block}{research_block}
 STRICT REQUIREMENTS:
 - Slide 1 title MUST be the hook above (copy it exactly)
 - Slide 2 MUST be a re-hook — a standalone entry point with a different angle on the same topic
@@ -245,6 +316,7 @@ Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers/numbers)
 - "body": One sentence of content (under 15 words, must include a number)
 - "footer": Short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis. Leave blank if no source.
+- "claim_source": "news_source" if the fact comes from the research, "supporting_data" if it's additional context, or "none" for hook/CTA slides.
 
 Return ONLY the JSON array, no other text."""
 
@@ -308,11 +380,232 @@ Return ONLY the JSON array, no other text."""
     return _parse_json(text)
 
 
-def fact_check_slides(slides: list[dict], topic: str, angle: str) -> dict:
-    """Fact-check slide content and return corrected slides with a report."""
+# ── Layer 3A: Fact-check news-sourced claims against research ─────────────────
+
+def fact_check_news_claims(
+    slides: list[dict],
+    key_facts: list[dict],
+    research_text: str,
+) -> dict:
+    """Verify slides tagged as news_source against the original research.
+
+    Returns dict with "fact_check_report" and "corrected_slides".
+    """
     client = anthropic.Anthropic()
 
-    prompt = f"""You are a rigorous financial fact-checker. Your job is to verify every claim in these slides.
+    prompt = f"""You are a financial fact-checker. Your job: verify that every NEWS-SOURCED claim
+in these slides accurately reflects the original research data.
+
+ORIGINAL RESEARCH:
+{research_text}
+
+EXTRACTED FACTS:
+{json.dumps(key_facts, indent=2)}
+
+SLIDES TO CHECK:
+{json.dumps(slides, indent=2)}
+
+For each slide where "claim_source" is "news_source":
+1. Find the matching fact in the research/extracted facts.
+2. Verify the slide's numbers, dates, and entities match the source EXACTLY.
+3. If the slide misquotes, exaggerates, or takes a fact out of context — correct it.
+4. If the claim cannot be traced to the research, flag it.
+
+For slides with "claim_source" = "supporting_data" or "none", mark as "skipped".
+
+RULES: Keep same structure. Keep text lowercase except tickers. Body under 15 words.
+Every slide must have a number/% or $. No hashtags in footer.
+
+Return JSON:
+{{
+  "fact_check_report": [
+    {{"slide": 1, "status": "verified" or "corrected" or "flagged", "notes": "..."}}
+  ],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "...", "claim_source": "..."}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Layer 3B: Fact-check supporting data claims independently ─────────────────
+
+def fact_check_supporting_claims(slides: list[dict], topic: str) -> dict:
+    """Verify slides tagged as supporting_data using general knowledge.
+
+    Returns dict with "fact_check_report" and "corrected_slides".
+    """
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a financial fact-checker. Your job: verify every SUPPORTING DATA claim
+in these slides. These are contextual facts not from the original news — verify them
+independently based on your knowledge.
+
+Topic: {topic}
+
+SLIDES TO CHECK:
+{json.dumps(slides, indent=2)}
+
+For each slide where "claim_source" is "supporting_data":
+1. Identify every factual claim (numbers, %, $, dates, companies, events).
+2. Verify accuracy. If uncertain, flag it.
+3. If wrong or unverifiable, correct it with a verifiable fact.
+
+For slides with "claim_source" = "news_source" or "none", mark as "skipped".
+
+RULES: Keep same structure. Keep text lowercase except tickers. Body under 15 words.
+Every slide must have a number/% or $. No hashtags in footer.
+
+Return JSON:
+{{
+  "fact_check_report": [
+    {{"slide": 1, "status": "verified" or "corrected" or "flagged" or "skipped", "notes": "..."}}
+  ],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "...", "claim_source": "..."}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Layer 4: Validate conclusions ─────────────────────────────────────────────
+
+def validate_conclusions(
+    slides: list[dict],
+    key_facts: list[dict],
+    topic: str,
+    hook: str,
+) -> dict:
+    """Check that the verdict/takeaway logically follows from the evidence.
+
+    Returns dict with "valid" (bool), "issues" (list), and "corrected_slides".
+    """
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a financial logic checker. Your job: verify that the CONCLUSION slides
+(verdict and any takeaway) logically follow from the evidence presented.
+
+Topic: {topic}
+Hook: {hook}
+
+VERIFIED FACTS USED:
+{json.dumps(key_facts, indent=2)}
+
+SLIDES:
+{json.dumps(slides, indent=2)}
+
+Check:
+1. Does the verdict slide (second-to-last) logically follow from the data slides?
+2. Are there logical leaps — conclusions that the data doesn't support?
+3. Does the hook's promise get fulfilled by the end?
+4. Is there any correlation-vs-causation error?
+5. Are predictions clearly framed as possibilities, not certainties?
+
+If the conclusions are sound, return them unchanged.
+If any conclusion is a logical stretch, rewrite it to be defensible.
+
+RULES: Keep same structure. Keep text lowercase except tickers. Body under 15 words.
+
+Return JSON:
+{{
+  "valid": true or false,
+  "issues": ["list of any logical problems found"],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "...", "claim_source": "..."}}
+  ]
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Layer 5: Narrative coherence check ────────────────────────────────────────
+
+def check_narrative_coherence(
+    slides: list[dict],
+    hook: str,
+    topic: str,
+) -> list[dict]:
+    """Ensure the story arc flows logically and every slide connects to the hook.
+
+    Returns the corrected slide list.
+    """
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a senior story editor for finance content. Review this slide deck's NARRATIVE ARC.
+
+Hook: {hook}
+Topic: {topic}
+
+SLIDES:
+{json.dumps(slides, indent=2)}
+
+Check the following:
+1. Does each slide logically lead to the next? Is there a clear thread?
+2. Is there a build-up: news event → context → tension → insight → payoff?
+3. Does every slide feel connected to the hook's promise?
+4. Are there any jumps where the reader would think "wait, where did this come from?"
+5. Does the verdict feel like a satisfying conclusion to THIS specific story?
+
+If the arc is broken or a slide feels disconnected:
+- Rewrite it to bridge the gap while keeping the same factual claim.
+- Do NOT change the facts — only improve the framing and transitions.
+
+RULES: Keep same structure. Keep text lowercase except tickers. Body under 15 words.
+Footer: short source attribution only. No hashtags. Keep "claim_source" tags intact.
+
+Return your response as a JSON array of the slides (improved where needed):
+[
+  {{"title": "...", "body": "...", "footer": "...", "claim_source": "..."}}
+]
+
+Return ONLY the JSON array, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+# ── Legacy wrapper for backward compatibility ─────────────────────────────────
+
+def fact_check_slides(slides: list[dict], topic: str, angle: str) -> dict:
+    """Simple fact-check fallback (used when key_facts are not available)."""
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a rigorous financial fact-checker. Verify every claim in these slides.
 
 Topic: {topic}
 Angle: {angle}
@@ -320,27 +613,18 @@ Angle: {angle}
 Slides to fact-check:
 {json.dumps(slides, indent=2)}
 
-For EACH slide, do the following:
-1. Identify every factual claim (numbers, percentages, dollar amounts, dates, company names, events).
-2. Check if the claim is accurate based on your knowledge. If you are not confident a claim is accurate, flag it.
-3. If a claim is wrong or unverifiable, correct it or replace it with a verifiable fact.
+For EACH slide:
+1. Identify every factual claim.
+2. Check accuracy. If uncertain, flag it.
+3. If wrong, correct it.
 
-IMPORTANT:
-- Keep the same slide structure (title, body, footer)
-- Keep all text lowercase except ticker symbols and numbers
-- Keep every slide under 15 words for body text
-- Every slide must still contain a specific number, % or $
-- Do NOT add filler — maintain the punchy style
-- If a slide is factually sound, keep it as-is
+RULES: Keep same structure, lowercase except tickers, body under 15 words,
+must have number/% or $. No hashtags in footer.
 
-Return your response as JSON with this structure:
+Return JSON:
 {{
   "fact_check_report": [
-    {{
-      "slide": 1,
-      "status": "verified" or "corrected" or "flagged",
-      "notes": "explanation of what was checked or changed"
-    }}
+    {{"slide": 1, "status": "verified" or "corrected" or "flagged", "notes": "..."}}
   ],
   "corrected_slides": [
     {{"title": "...", "body": "...", "footer": "..."}}
