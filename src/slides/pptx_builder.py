@@ -1,5 +1,6 @@
 """Build PPTX slide decks from structured content."""
 
+import math
 import os
 from datetime import datetime
 
@@ -13,6 +14,36 @@ def _hex_to_rgb(hex_color: str) -> RGBColor:
     """Convert a hex color string to an RGBColor."""
     h = hex_color.lstrip("#")
     return RGBColor(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _calc_title_layout(title_text: str, avail_width_inches: float):
+    """Pick title font size and box height so the text never overflows.
+
+    Returns (font_size_pt, box_height_inches).
+    """
+    # Approximate chars-per-line at each font size for the available width.
+    # At 45pt on ~5.7" width ≈ 22 cpl; 38pt ≈ 26 cpl; 32pt ≈ 31 cpl.
+    tiers = [
+        (45, avail_width_inches / 0.26),   # ~22 cpl at 5.7"
+        (38, avail_width_inches / 0.22),   # ~26 cpl
+        (32, avail_width_inches / 0.185),  # ~31 cpl
+    ]
+
+    max_lines = 4  # never exceed 4 lines regardless of font size
+    line_height_factor = 1.35  # line height as multiple of font size
+
+    for font_pt, cpl in tiers:
+        lines = max(1, math.ceil(len(title_text) / max(cpl, 1)))
+        if lines <= max_lines:
+            line_h_in = (font_pt * line_height_factor) / 72  # pt → inches
+            box_h = lines * line_h_in + 0.15  # small padding
+            return font_pt, box_h
+
+    # Fallback: smallest tier, cap at max_lines
+    font_pt, cpl = tiers[-1]
+    line_h_in = (font_pt * line_height_factor) / 72
+    box_h = max_lines * line_h_in + 0.15
+    return font_pt, box_h
 
 
 def build_pptx(
@@ -47,13 +78,14 @@ def build_pptx(
     title_color = _hex_to_rgb(colors.get("title", "#FFFFFF"))
     body_color = _hex_to_rgb(colors.get("body", "#C9D1D9"))
     accent_color = _hex_to_rgb(colors.get("accent", "#58A6FF"))
-    muted_color = _hex_to_rgb("#4A5568")  # Muted gray for subtle elements
+    muted_color = _hex_to_rgb("#4A5568")
 
     slide_w = prs.slide_width
     slide_h = prs.slide_height
     margin = Inches(0.9)
+    content_w = slide_w - 2 * margin
+    content_w_inches = content_w / 914400  # EMU to inches
 
-    # 5px left accent bar (≈ 0.05")
     accent_bar_w = Inches(0.05)
 
     for idx, slide_data in enumerate(slides):
@@ -87,49 +119,52 @@ def build_pptx(
         indicator_p = indicator_tf.paragraphs[0]
         indicator_p.text = f"{idx + 1}/{len(slides)}"
         indicator_p.font.size = Pt(16)
-        indicator_p.font.name = "Calibri"
+        indicator_p.font.name = "Arial"
         indicator_p.font.color.rgb = accent_color
         indicator_p.font.bold = False
         indicator_p.alignment = PP_ALIGN.RIGHT
 
-        # -- Title: Calibri Bold 45pt --
-        # Positioned in upper-middle zone
+        # -- Title: Arial Bold, dynamically sized --
+        title_text = slide_data.get("title", "")
+        title_font_pt, title_box_h = _calc_title_layout(title_text, content_w_inches)
+
         title_top = Inches(2.2)
-        title_height = Inches(3.0)
+        title_height = Inches(title_box_h)
         title_box = slide.shapes.add_textbox(
-            margin, title_top, slide_w - 2 * margin, title_height
+            margin, title_top, content_w, title_height
         )
         title_tf = title_box.text_frame
         title_tf.word_wrap = True
         title_tf.auto_size = None
         title_p = title_tf.paragraphs[0]
-        title_p.text = slide_data.get("title", "")
-        title_p.font.size = Pt(45)
-        title_p.font.name = "Calibri"
+        title_p.text = title_text
+        title_p.font.size = Pt(title_font_pt)
+        title_p.font.name = "Arial"
         title_p.font.bold = True
         title_p.font.color.rgb = title_color
         title_p.alignment = PP_ALIGN.LEFT
         title_p.space_after = Pt(0)
 
-        # -- Thin horizontal divider between title and body --
+        # -- Thin horizontal divider (positioned after actual title height) --
         divider_top = title_top + title_height + Inches(0.15)
         divider = slide.shapes.add_shape(
             1,
             margin,
             divider_top,
-            slide_w - 2 * margin,
+            content_w,
             Inches(0.015),
         )
         divider.fill.solid()
         divider.fill.fore_color.rgb = muted_color
         divider.line.fill.background()
 
-        # -- Body: Times New Roman 35pt --
-        # Tight gap after divider — title+body feel like one block
+        # -- Body: Times New Roman 35pt (positioned after divider) --
         body_top = divider_top + Inches(0.25)
-        body_height = Inches(3.5)
+        # Body fills remaining space above handle
+        handle_zone = Inches(1.2)
+        body_height = slide_h - body_top - handle_zone
         body_box = slide.shapes.add_textbox(
-            margin, body_top, slide_w - 2 * margin, body_height
+            margin, body_top, content_w, body_height
         )
         body_tf = body_box.text_frame
         body_tf.word_wrap = True
@@ -155,7 +190,7 @@ def build_pptx(
         handle_p = handle_tf.paragraphs[0]
         handle_p.text = handle
         handle_p.font.size = Pt(14)
-        handle_p.font.name = "Calibri"
+        handle_p.font.name = "Arial"
         handle_p.font.color.rgb = muted_color
         handle_p.alignment = PP_ALIGN.CENTER
 
