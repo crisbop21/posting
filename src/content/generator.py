@@ -65,6 +65,18 @@ Slide structure:
 - Slides 3-N: Data — one key fact per slide, comparative or surprising
 - Second-to-last slide: Verdict — the takeaway in one sentence
 - Last slide: CTA — "save this", "comment below", "follow for update"
+
+STORYTELLING (critical):
+- The slides MUST tell a cohesive story with a clear narrative arc.
+- Each slide should logically lead to the next — the viewer should NEED to swipe.
+- Structure the data slides as a build-up: context → tension → insight → payoff.
+- Never repeat the same type of fact back-to-back; alternate between comparison, trend, and surprise.
+- The verdict slide should feel like a satisfying conclusion to the story, not a random opinion.
+
+FOOTER RULES:
+- Footer is a SHORT source attribution (e.g. "source: bloomberg", "data: fed reserve", "per SEC filing").
+- NO hashtags. NO emojis. NO self-promotion.
+- Keep footers to 3-5 words max. Leave blank if no source needed.
 """
 
 
@@ -223,10 +235,16 @@ STRICT REQUIREMENTS:
 - Each slide body: ONE sentence, under 15 words, must include a number/% or $
 - No filler. Every slide must make the viewer want to swipe.
 
+STORYTELLING:
+- The slides must tell ONE cohesive story — each slide builds on the previous.
+- Data slides should follow: context → tension → insight → payoff.
+- Never repeat the same type of fact back-to-back; alternate comparison, trend, and surprise.
+- A reader who sees slides 1-N should feel like they followed a narrative, not read a list.
+
 Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers/numbers)
 - "body": One sentence of content (under 15 words, must include a number)
-- "footer": A small source note or hashtag
+- "footer": Short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis. Leave blank if no source.
 
 Return ONLY the JSON array, no other text."""
 
@@ -235,6 +253,55 @@ Return ONLY the JSON array, no other text."""
         max_tokens=4096,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+def add_value_pass(slides: list[dict], topic: str, angle: str, audience: str) -> list[dict]:
+    """Final iteration: maximize reader value without adding clutter.
+
+    Looks for opportunities to replace generic claims with sharper data,
+    add actionable insight, or strengthen the narrative thread.
+    """
+    client = anthropic.Anthropic()
+
+    prompt = f"""You are a senior finance content editor. Your reader is: {audience}.
+
+Topic: {topic}
+Angle: {angle}
+
+Here are the current slides:
+{json.dumps(slides, indent=2)}
+
+Your job: ONE final pass to maximize the value a reader gets from this deck.
+Ask yourself for each slide:
+- Could a vague claim be replaced with a sharper, more specific number?
+- Is there an actionable insight missing that the reader could use TODAY?
+- Does this slide teach something or just state the obvious?
+- Does the narrative arc build tension and deliver a satisfying payoff?
+- Is every slide earning its place — would the deck be weaker without it?
+
+RULES:
+- Keep the same number of slides, same structure (title, body, footer).
+- Keep all text lowercase except tickers and numbers.
+- Keep body under 15 words per slide. Every slide must have a number/% or $.
+- Footer: short source attribution only. No hashtags, no emojis.
+- Do NOT add filler or fluff. Only improve — never dilute.
+- If a slide is already strong, leave it unchanged.
+
+Return your response as a JSON array of the improved slides:
+[
+  {{"title": "...", "body": "...", "footer": "..."}}
+]
+
+Return ONLY the JSON array, no other text."""
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
     )
 
     text = _extract_text(response)
