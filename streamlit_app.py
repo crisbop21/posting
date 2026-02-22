@@ -34,6 +34,7 @@ from src.content.generator import (
     check_narrative_coherence,
     strip_claim_tags,
     web_search_fact_check,
+    enforce_hook_and_count,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
@@ -153,6 +154,7 @@ for key, default in {
     "selected_topic": None,
     "verified_bullets": [],
     "angle": "",
+    "angle_verified": False,
     "user_facts": "",
     "hook_options": [],
     "selected_hook": None,
@@ -433,7 +435,10 @@ elif st.session_state.step == 4:
     tab_angle, tab_data = st.tabs(["Provide an Angle", "Add Your Own Data"])
 
     with tab_angle:
-        st.write("Describe your angle — we'll research additional data to support it.")
+        st.write(
+            "Describe your angle — we'll research it, verify all data is factual, "
+            "and ensure at least 20 verified bullet points before building slides."
+        )
         angle = st.text_area(
             "Your angle",
             value=st.session_state.angle,
@@ -442,10 +447,12 @@ elif st.session_state.step == 4:
             key="angle_input",
         )
 
-        if st.button("Research This Angle", disabled=not angle.strip()):
+        if st.button("Research & Verify This Angle", disabled=not angle.strip()):
             _require_api_key()
             st.session_state.angle = angle.strip()
-            with st.spinner("Researching additional data for your angle..."):
+
+            # Step A: Research the angle
+            with st.spinner("Searching for data on your angle..."):
                 try:
                     new_bullets = research_angle(
                         topic=topic,
@@ -453,12 +460,46 @@ elif st.session_state.step == 4:
                         existing_bullets=bullets,
                     )
                     if new_bullets:
-                        st.session_state.verified_bullets = bullets + new_bullets
+                        combined = bullets + new_bullets
                         st.toast(f"Found {len(new_bullets)} additional data points for your angle")
                     else:
-                        st.toast("No additional data found — existing data will be used")
+                        combined = bullets
+                        st.toast("No additional data found from angle search")
                 except Exception as e:
-                    st.toast(f"Angle research failed: {e} — continuing with existing data")
+                    combined = bullets
+                    st.toast(f"Angle research failed: {e} — using existing data")
+
+            # Step B: If under 20 bullets, do a second round of consolidation
+            if len(combined) < 20:
+                with st.spinner(
+                    f"Only {len(combined)} data points — researching more to reach 20+..."
+                ):
+                    try:
+                        extra_bullets = consolidate_topic_data(
+                            research_text=st.session_state.research_text,
+                            research_facts=[
+                                {"fact": b["bullet"], "source": b.get("source", "")}
+                                for b in combined
+                            ],
+                            topic={
+                                "title": topic["title"],
+                                "description": f"{topic['description']} — angle: {angle.strip()}",
+                            },
+                            audience=audience,
+                        )
+                        # Merge without duplicating (by bullet text)
+                        existing_texts = {b["bullet"].lower() for b in combined}
+                        for eb in extra_bullets:
+                            if eb["bullet"].lower() not in existing_texts:
+                                combined.append(eb)
+                                existing_texts.add(eb["bullet"].lower())
+                        st.toast(f"Consolidated to {len(combined)} total data points")
+                    except Exception as e:
+                        st.toast(f"Extra consolidation failed: {e}")
+
+            st.session_state.verified_bullets = combined
+            # Mark that angle research is done
+            st.session_state["angle_verified"] = True
             st.rerun()
 
     with tab_data:
@@ -491,7 +532,17 @@ elif st.session_state.step == 4:
 
     # Show current data pool
     current_bullets = st.session_state.verified_bullets
-    with st.expander(f"Current data pool ({len(current_bullets)} points)", expanded=False):
+    bullet_count = len(current_bullets)
+
+    if bullet_count < 20:
+        st.warning(
+            f"Only {bullet_count} data points — at least 20 recommended. "
+            "Research an angle or add your own data above."
+        )
+    else:
+        st.success(f"{bullet_count} verified data points ready.")
+
+    with st.expander(f"Current data pool ({bullet_count} points)", expanded=False):
         for b in current_bullets:
             src = b.get("source", "unknown")
             conf = b.get("confidence", "medium")
@@ -503,7 +554,17 @@ elif st.session_state.step == 4:
         st.session_state.step = 3
         st.rerun()
 
-    if col_next.button("Generate Slides", type="primary"):
+    # Only allow proceeding if angle was verified or user added data
+    angle_verified = st.session_state.get("angle_verified", False)
+    has_user_facts = bool(st.session_state.user_facts)
+    can_proceed = angle_verified or has_user_facts or bullet_count >= 20
+
+    if col_next.button(
+        "Generate Slides",
+        type="primary",
+        disabled=not can_proceed,
+        help="Research an angle or add your data first" if not can_proceed else "",
+    ):
         if not st.session_state.angle:
             st.session_state.angle = ""
         st.session_state.step = 5
@@ -533,19 +594,22 @@ elif st.session_state.step == 5:
         try:
             progress = st.progress(0, text="Generating slides...")
 
+            hook_text = hook["hook"]
+
             # Generate slides grounded in verified bullets
             with st.spinner("Creating slides from verified data..."):
                 progress.progress(10, text="Generating fact-grounded slides...")
                 slides = generate_slide_content(
                     topic=topic["title"],
                     angle=angle or topic["description"],
-                    hook=hook["hook"],
+                    hook=hook_text,
                     slide_count=slide_count,
                     tone=tone,
                     audience=audience,
                     style_notes=style_notes,
                     research_facts=bullets,
                 )
+                slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Engagement review
             if review_iterations > 0:
@@ -556,8 +620,9 @@ elif st.session_state.step == 5:
                         tone=tone,
                         audience=audience,
                         iterations=review_iterations,
-                        hook=hook["hook"],
+                        hook=hook_text,
                     )
+                    slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Fact-check against research
             if bullets:
@@ -570,6 +635,7 @@ elif st.session_state.step == 5:
                     layer_a = fc_result.get("layer_a_report", [])
                     layer_b = fc_result.get("layer_b_report", [])
                     slides = fc_result.get("corrected_slides", slides)
+                    slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
                 fact_report = []
                 for item in layer_a:
@@ -596,6 +662,7 @@ elif st.session_state.step == 5:
                     )
                     ws_report = ws_result.get("search_report", [])
                     slides = ws_result.get("corrected_slides", slides)
+                    slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
                     corrected_count = sum(
                         1 for r in ws_report if r.get("status") == "corrected"
@@ -626,18 +693,20 @@ elif st.session_state.step == 5:
                     issues = conclusion_result.get("issues", [])
                     st.toast(f"Fixed {len(issues)} logic gap(s) in conclusion")
                 slides = conclusion_result.get("corrected_slides", slides)
+                slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Narrative coherence
             with st.spinner("Ensuring story cohesion..."):
                 progress.progress(75, text="Checking narrative coherence...")
                 coherence_result = check_narrative_coherence(
                     slides, topic["title"],
-                    angle or topic["description"], hook["hook"],
+                    angle or topic["description"], hook_text,
                 )
                 st.session_state.coherence_report = coherence_result
                 coherence_score = coherence_result.get("coherence_score", 0)
                 st.toast(f"Narrative coherence: {coherence_score}/10")
                 slides = coherence_result.get("corrected_slides", slides)
+                slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Strip claim tags
             slides = strip_claim_tags(slides)
@@ -651,6 +720,7 @@ elif st.session_state.step == 5:
                     angle=angle or topic["description"],
                     audience=audience,
                 )
+                slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # TikTok metadata
             with st.spinner("Generating TikTok metadata..."):

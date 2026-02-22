@@ -66,8 +66,10 @@ Please do the following:
    - Make sure data points are highlighted
    - Ensure slides tell a cohesive STORY — each slide must logically lead to the next
    - Data slides should build: context → tension → insight → payoff
-   - If the story isn't cohesive, you MAY reorder, merge, or restructure slides to improve flow
+   - You MAY reorder or rewrite slides to improve flow, but MUST return the same number of slides
    - Footer: short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis
+   - You MUST return EXACTLY {len(current_slides)} slides — same count as the input
+   - Slide 1 title MUST remain the hook EXACTLY as written — do NOT rephrase it
 
 FACTUAL INTEGRITY (critical — overrides engagement goals):
    - NEVER change, replace, or introduce specific numbers, prices, percentages, or dollar amounts.
