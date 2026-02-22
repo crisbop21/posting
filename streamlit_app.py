@@ -1,4 +1,14 @@
-"""Streamlit UI for the finance slide generator — guided 4-step workflow."""
+"""Streamlit UI for the finance slide generator — guided 7-step workflow.
+
+Flow:
+  1. Research & Pick a Topic
+  2. Consolidate Data (20+ verified bullet points)
+  3. Choose a Hook (grounded in verified data)
+  4. Provide Angle & Additional Data
+  5. Generate & Verify Slides (consolidated checks)
+  6. Edit Slides (inline editing)
+  7. Export & Visualize (on-demand)
+"""
 
 import io
 import os
@@ -14,10 +24,11 @@ from src.content.generator import (
     generate_hooks,
     generate_slide_content,
     add_value_pass,
-    fact_check_slides,
     fact_check_news,
     generate_tiktok_metadata,
     extract_news_facts,
+    consolidate_topic_data,
+    research_angle,
     layered_fact_check,
     validate_conclusion,
     check_narrative_coherence,
@@ -140,7 +151,9 @@ for key, default in {
     "research_facts": [],
     "topic_options": [],
     "selected_topic": None,
+    "verified_bullets": [],
     "angle": "",
+    "user_facts": "",
     "hook_options": [],
     "selected_hook": None,
     "slides": [],
@@ -157,10 +170,13 @@ for key, default in {
 # ── Step indicators ───────────────────────────────────────────────────────────
 
 step_labels = [
-    "1. Pick a Topic",
-    "2. Define Your Angle",
-    "3. Choose a Hook",
-    "4. Generate Slides",
+    "1. Topic",
+    "2. Data",
+    "3. Hook",
+    "4. Angle",
+    "5. Generate",
+    "6. Edit",
+    "7. Export",
 ]
 
 current = st.session_state.step
@@ -180,12 +196,10 @@ st.divider()
 
 if st.session_state.step > 1:
     if st.button("Start Over"):
-        for key in ["step", "research_text", "research_facts", "topic_options",
-                     "selected_topic", "angle", "hook_options", "selected_hook",
-                     "slides", "fact_check_report", "conclusion_report",
-                     "coherence_report", "tiktok_metadata", "pptx_path",
-                     "png_paths"]:
-            del st.session_state[key]
+        for key in list(st.session_state.keys()):
+            if key != "step":
+                del st.session_state[key]
+        st.session_state.step = 1
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -207,7 +221,6 @@ if st.session_state.step == 1:
                 if news_items:
                     st.toast(f"Found {len(news_items)} recent articles — fact-checking...")
 
-                    # Fact-check and correct news before using it
                     raw_news = format_news_for_prompt(news_items)
                     try:
                         verdicts = fact_check_news(raw_news)
@@ -249,9 +262,9 @@ if st.session_state.step == 1:
 
             st.session_state.research_text = research_text
 
-        # Layer 1: Extract structured facts from research
+        # Extract structured facts from research
         try:
-            with st.spinner("Extracting structured facts from research (Layer 1)..."):
+            with st.spinner("Extracting structured facts from research..."):
                 research_facts = extract_news_facts(research_text)
                 st.session_state.research_facts = research_facts
                 st.toast(f"Extracted {len(research_facts)} verifiable facts")
@@ -260,7 +273,7 @@ if st.session_state.step == 1:
             st.session_state.research_facts = []
 
         try:
-            with st.spinner("Generating topic suggestions with Claude..."):
+            with st.spinner("Generating topic suggestions..."):
                 topic_options = suggest_topics(research_text, audience)
                 st.session_state.topic_options = topic_options
         except anthropic.AuthenticationError:
@@ -272,7 +285,6 @@ if st.session_state.step == 1:
 
         st.rerun()
 
-    # Show topic dropdown if we have options
     if st.session_state.topic_options:
         topic_options = st.session_state.topic_options
         labels = [f"{t['title']} — {t['description']}" for t in topic_options]
@@ -290,44 +302,76 @@ if st.session_state.step == 1:
             st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Define Your Angle
+# STEP 2 — Consolidate Data (20+ verified bullet points)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 2:
-    st.header("Step 2: Define Your Angle")
+    st.header("Step 2: Verified Data")
     topic = st.session_state.selected_topic
     st.info(f"**Topic:** {topic['title']}  \n{topic['description']}")
 
-    angle = st.text_area(
-        "What angle or specific information do you want to provide?",
-        placeholder="e.g. 'Focus on how beginners can take advantage of this trend, include 3 actionable steps'",
-        height=120,
-    )
+    # Generate bullet points if we don't have them yet
+    if not st.session_state.verified_bullets:
+        _require_api_key()
+        try:
+            with st.spinner("Consolidating all relevant data and verifying (web search + research)..."):
+                bullets = consolidate_topic_data(
+                    research_text=st.session_state.research_text,
+                    research_facts=st.session_state.research_facts,
+                    topic=topic,
+                    audience=audience,
+                )
+                st.session_state.verified_bullets = bullets
+                st.rerun()
+        except anthropic.APIError as exc:
+            st.error(f"API error: {exc}")
+            st.stop()
 
-    if st.button("Continue", type="primary", disabled=not angle.strip()):
-        st.session_state.angle = angle.strip()
+    bullets = st.session_state.verified_bullets
+    st.success(f"Found {len(bullets)} verified data points for this topic.")
+
+    # Display bullets grouped by confidence
+    high_conf = [b for b in bullets if b.get("confidence") == "high"]
+    med_conf = [b for b in bullets if b.get("confidence") != "high"]
+
+    if high_conf:
+        st.subheader(f"High confidence ({len(high_conf)})")
+        for b in high_conf:
+            st.markdown(f"- **{b['bullet']}** — _source: {b.get('source', 'unknown')}_")
+
+    if med_conf:
+        st.subheader(f"Medium confidence ({len(med_conf)})")
+        for b in med_conf:
+            st.markdown(f"- {b['bullet']} — _source: {b.get('source', 'unknown')}_")
+
+    col_back, col_next = st.columns(2)
+    if col_back.button("Back"):
+        st.session_state.verified_bullets = []
+        st.session_state.step = 1
+        st.rerun()
+
+    if col_next.button("Continue to Hooks", type="primary"):
         st.session_state.step = 3
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 — Choose a Hook
+# STEP 3 — Choose a Hook (grounded in verified data)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 3:
     st.header("Step 3: Choose a Hook")
     topic = st.session_state.selected_topic
-    angle = st.session_state.angle
+    bullets = st.session_state.verified_bullets
 
-    st.info(f"**Topic:** {topic['title']}  \n**Angle:** {angle}")
+    st.info(f"**Topic:** {topic['title']}  \n**Data points:** {len(bullets)} verified")
 
-    # Generate hooks if we don't have them yet
     if not st.session_state.hook_options:
         _require_api_key()
         try:
-            with st.spinner("Generating 10 hook options using hook templates..."):
+            with st.spinner("Generating hooks grounded in your verified data..."):
                 hooks = generate_hooks(
                     topic=topic["title"],
-                    angle=angle,
+                    verified_bullets=bullets,
                     tone=tone,
                     audience=audience,
                 )
@@ -341,13 +385,21 @@ elif st.session_state.step == 3:
             st.stop()
 
     hooks = st.session_state.hook_options
-    hook_labels = [f"[{h['style']}] {h['hook']}" for h in hooks]
+    hook_labels = []
+    for h in hooks:
+        fit = h.get("fit_score", "?")
+        hook_labels.append(f"[{h['style']} | fit: {fit}/10] {h['hook']}")
 
     selected_hook_idx = st.radio(
-        "Pick the hook for your opening slide",
+        "Pick the hook for your opening slide (sorted by best fit)",
         range(len(hook_labels)),
         format_func=lambda i: hook_labels[i],
     )
+
+    # Show which data the selected hook uses
+    selected = hooks[selected_hook_idx]
+    if selected.get("data_used"):
+        st.caption(f"Data used: {selected['data_used']}")
 
     col_back, col_next = st.columns(2)
     if col_back.button("Back"):
@@ -355,61 +407,150 @@ elif st.session_state.step == 3:
         st.session_state.step = 2
         st.rerun()
 
-    if col_next.button("Generate Slides", type="primary"):
+    if col_next.button("Continue", type="primary"):
         st.session_state.selected_hook = hooks[selected_hook_idx]
         st.session_state.step = 4
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 — Generate, Fact-Check & Download Slides
+# STEP 4 — Provide Angle & Additional Data
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 4:
-    st.header("Step 4: Your Slides")
+    st.header("Step 4: Your Angle & Data")
     topic = st.session_state.selected_topic
-    angle = st.session_state.angle
     hook = st.session_state.selected_hook
+    bullets = st.session_state.verified_bullets
 
     st.info(
         f"**Topic:** {topic['title']}  \n"
-        f"**Angle:** {angle}  \n"
-        f"**Hook:** {hook['hook']}"
+        f"**Hook:** {hook['hook']}  \n"
+        f"**Data points:** {len(bullets)} verified"
     )
 
-    # Generate slides if we haven't yet
+    st.write("Choose how to add your perspective:")
+
+    tab_angle, tab_data = st.tabs(["Provide an Angle", "Add Your Own Data"])
+
+    with tab_angle:
+        st.write("Describe your angle — we'll research additional data to support it.")
+        angle = st.text_area(
+            "Your angle",
+            value=st.session_state.angle,
+            placeholder="e.g. 'Focus on how beginners can take advantage of this trend, include 3 actionable steps'",
+            height=120,
+            key="angle_input",
+        )
+
+        if st.button("Research This Angle", disabled=not angle.strip()):
+            _require_api_key()
+            st.session_state.angle = angle.strip()
+            with st.spinner("Researching additional data for your angle..."):
+                try:
+                    new_bullets = research_angle(
+                        topic=topic,
+                        angle=angle.strip(),
+                        existing_bullets=bullets,
+                    )
+                    if new_bullets:
+                        st.session_state.verified_bullets = bullets + new_bullets
+                        st.toast(f"Found {len(new_bullets)} additional data points for your angle")
+                    else:
+                        st.toast("No additional data found — existing data will be used")
+                except Exception as e:
+                    st.toast(f"Angle research failed: {e} — continuing with existing data")
+            st.rerun()
+
+    with tab_data:
+        st.write("Paste factual data you know to be true. One fact per line.")
+        user_facts = st.text_area(
+            "Your factual data",
+            value=st.session_state.user_facts,
+            placeholder="Oil is at $66 per barrel as of today\nThe Fed held rates at 4.5% in January\nTesla delivered 495,000 vehicles in Q4",
+            height=160,
+            key="user_facts_input",
+        )
+
+        if st.button("Add My Data", disabled=not user_facts.strip()):
+            st.session_state.user_facts = user_facts.strip()
+            # Convert user facts to bullet format
+            user_bullets = []
+            for line in user_facts.strip().split("\n"):
+                line = line.strip()
+                if line:
+                    user_bullets.append({
+                        "bullet": line,
+                        "value": line,
+                        "source": "user-provided",
+                        "confidence": "high",
+                    })
+            if user_bullets:
+                st.session_state.verified_bullets = bullets + user_bullets
+                st.toast(f"Added {len(user_bullets)} user-provided data points")
+            st.rerun()
+
+    # Show current data pool
+    current_bullets = st.session_state.verified_bullets
+    with st.expander(f"Current data pool ({len(current_bullets)} points)", expanded=False):
+        for b in current_bullets:
+            src = b.get("source", "unknown")
+            conf = b.get("confidence", "medium")
+            icon = "**" if conf == "high" else ""
+            st.markdown(f"- {icon}{b['bullet']}{icon} — _{src}_")
+
+    col_back, col_next = st.columns(2)
+    if col_back.button("Back"):
+        st.session_state.step = 3
+        st.rerun()
+
+    if col_next.button("Generate Slides", type="primary"):
+        if not st.session_state.angle:
+            st.session_state.angle = ""
+        st.session_state.step = 5
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 5 — Generate & Verify Slides (consolidated checks)
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 5:
+    st.header("Step 5: Generating Slides")
+    topic = st.session_state.selected_topic
+    angle = st.session_state.angle
+    hook = st.session_state.selected_hook
+    bullets = st.session_state.verified_bullets
+    research_text = st.session_state.research_text
+
+    st.info(
+        f"**Topic:** {topic['title']}  \n"
+        f"**Hook:** {hook['hook']}  \n"
+        f"**Data points:** {len(bullets)} verified"
+    )
+
     if not st.session_state.slides:
         _require_api_key()
 
-        colors = {
-            "background": bg_color,
-            "title": title_color,
-            "body": body_color,
-            "accent": accent_color,
-            "highlight": highlight_color,
-        }
-
         try:
             progress = st.progress(0, text="Generating slides...")
-            research_facts = st.session_state.research_facts
 
-            # Layer 2: Generate slides grounded in extracted facts
-            with st.spinner("Claude is writing fact-grounded slides (Layer 2)..."):
+            # Generate slides grounded in verified bullets
+            with st.spinner("Creating slides from verified data..."):
                 progress.progress(10, text="Generating fact-grounded slides...")
                 slides = generate_slide_content(
                     topic=topic["title"],
-                    angle=angle,
+                    angle=angle or topic["description"],
                     hook=hook["hook"],
                     slide_count=slide_count,
                     tone=tone,
                     audience=audience,
                     style_notes=style_notes,
-                    research_facts=research_facts or None,
+                    research_facts=bullets,
                 )
 
-            # Engagement review iterations
+            # Engagement review
             if review_iterations > 0:
-                with st.spinner(f"Reviewing ({review_iterations} iterations)..."):
-                    progress.progress(22, text="Reviewing and improving engagement...")
+                with st.spinner(f"Improving engagement ({review_iterations} iterations)..."):
+                    progress.progress(25, text="Reviewing engagement...")
                     slides = review_and_improve(
                         slides=slides,
                         tone=tone,
@@ -418,91 +559,40 @@ elif st.session_state.step == 4:
                         hook=hook["hook"],
                     )
 
-            # Layer 3: Layered fact-check (A: news-sourced, B: supporting data)
-            research_text = st.session_state.research_text
-            if research_facts:
-                max_fc_rounds = 3
-                for fc_round in range(1, max_fc_rounds + 1):
-                    with st.spinner(
-                        f"Layered fact-check (round {fc_round}) — "
-                        f"A: news-sourced, B: supporting data..."
-                    ):
-                        progress.progress(
-                            35 + fc_round * 5,
-                            text=f"Layer 3: Layered fact-check (round {fc_round}/{max_fc_rounds})...",
-                        )
-                        fc_result = layered_fact_check(
-                            slides, research_text, research_facts,
-                            topic["title"], angle,
-                        )
-                        layer_a = fc_result.get("layer_a_report", [])
-                        layer_b = fc_result.get("layer_b_report", [])
-                        slides = fc_result.get("corrected_slides", slides)
-
-                    has_issues = any(
-                        item.get("status") in ("flagged", "unverifiable")
-                        for item in layer_a + layer_b
+            # Fact-check against research
+            if bullets:
+                with st.spinner("Fact-checking against verified data..."):
+                    progress.progress(40, text="Layered fact-check...")
+                    fc_result = layered_fact_check(
+                        slides, research_text, bullets,
+                        topic["title"], angle or topic["description"],
                     )
-                    if not has_issues:
-                        break
-                    if fc_round < max_fc_rounds:
-                        st.toast(
-                            f"Round {fc_round}: some claims still flagged — re-checking..."
-                        )
+                    layer_a = fc_result.get("layer_a_report", [])
+                    layer_b = fc_result.get("layer_b_report", [])
+                    slides = fc_result.get("corrected_slides", slides)
 
-                # Merge both layers into a unified report
                 fact_report = []
                 for item in layer_a:
                     fact_report.append({
                         "slide": item.get("slide", "?"),
                         "status": item.get("status", "unknown"),
-                        "notes": f"[Layer A — news-sourced] {item.get('notes', '')}",
+                        "notes": f"[news-sourced] {item.get('notes', '')}",
                     })
                 for item in layer_b:
                     fact_report.append({
                         "slide": item.get("slide", "?"),
                         "status": item.get("status", "unknown"),
-                        "notes": f"[Layer B — supporting data] {item.get('notes', '')}",
+                        "notes": f"[supporting data] {item.get('notes', '')}",
                     })
             else:
-                # Fallback to original fact-check when no research facts available
-                with st.spinner("Fact-checking all claims..."):
-                    progress.progress(40, text="Fact-checking slides...")
-                    fc_result = fact_check_slides(slides, topic["title"], angle)
-                    fact_report = fc_result.get("fact_check_report", [])
-                    slides = fc_result.get("corrected_slides", slides)
+                fact_report = []
 
-            st.session_state.fact_check_report = fact_report
-
-            # Layer 4: Conclusion validation
-            with st.spinner("Validating conclusion logic (Layer 4)..."):
-                progress.progress(55, text="Layer 4: Validating conclusion follows evidence...")
-                conclusion_result = validate_conclusion(
-                    slides, research_facts or [], topic["title"], angle,
-                )
-                st.session_state.conclusion_report = conclusion_result
-                if not conclusion_result.get("logic_valid", True):
-                    issues = conclusion_result.get("issues", [])
-                    st.toast(f"Conclusion fixed: {len(issues)} logic gap(s) corrected")
-                slides = conclusion_result.get("corrected_slides", slides)
-
-            # Layer 5: Narrative coherence
-            with st.spinner("Checking narrative coherence (Layer 5)..."):
-                progress.progress(65, text="Layer 5: Ensuring story arc flows...")
-                coherence_result = check_narrative_coherence(
-                    slides, topic["title"], angle, hook["hook"],
-                )
-                st.session_state.coherence_report = coherence_result
-                coherence_score = coherence_result.get("coherence_score", 0)
-                st.toast(f"Narrative coherence: {coherence_score}/10")
-                slides = coherence_result.get("corrected_slides", slides)
-
-            # Layer 6: Web-search-grounded fact-check for current data
-            with st.spinner("Web search fact-check — verifying claims against live data (Layer 6)..."):
-                progress.progress(70, text="Layer 6: Verifying claims against live search data...")
+            # Web search verification
+            with st.spinner("Verifying claims against live data..."):
+                progress.progress(55, text="Web search verification...")
                 try:
                     ws_result = web_search_fact_check(
-                        slides, topic["title"], angle,
+                        slides, topic["title"], angle or topic["description"],
                     )
                     ws_report = ws_result.get("search_report", [])
                     slides = ws_result.get("corrected_slides", slides)
@@ -511,82 +601,72 @@ elif st.session_state.step == 4:
                         1 for r in ws_report if r.get("status") == "corrected"
                     )
                     if corrected_count:
-                        st.toast(
-                            f"Web search corrected {corrected_count} outdated claim(s)"
-                        )
-                    else:
-                        st.toast("All claims verified against current data")
+                        st.toast(f"Web search corrected {corrected_count} outdated claim(s)")
 
-                    # Append web search findings to the fact-check report
                     for item in ws_report:
                         fact_report.append({
                             "slide": item.get("slide", "?"),
                             "status": item.get("status", "unknown"),
-                            "notes": f"[Layer 6 — web search] {item.get('notes', '')}",
+                            "notes": f"[web search] {item.get('notes', '')}",
                         })
-                except Exception as e:
-                    st.toast(f"Web search fact-check unavailable — continuing without: {e}")
+                except Exception:
+                    st.toast("Web search verification unavailable — continuing")
 
-            # Strip claim tags for downstream processing
+            st.session_state.fact_check_report = fact_report
+
+            # Conclusion validation
+            with st.spinner("Validating conclusion logic..."):
+                progress.progress(65, text="Validating conclusion...")
+                conclusion_result = validate_conclusion(
+                    slides, bullets, topic["title"],
+                    angle or topic["description"],
+                )
+                st.session_state.conclusion_report = conclusion_result
+                if not conclusion_result.get("logic_valid", True):
+                    issues = conclusion_result.get("issues", [])
+                    st.toast(f"Fixed {len(issues)} logic gap(s) in conclusion")
+                slides = conclusion_result.get("corrected_slides", slides)
+
+            # Narrative coherence
+            with st.spinner("Ensuring story cohesion..."):
+                progress.progress(75, text="Checking narrative coherence...")
+                coherence_result = check_narrative_coherence(
+                    slides, topic["title"],
+                    angle or topic["description"], hook["hook"],
+                )
+                st.session_state.coherence_report = coherence_result
+                coherence_score = coherence_result.get("coherence_score", 0)
+                st.toast(f"Narrative coherence: {coherence_score}/10")
+                slides = coherence_result.get("corrected_slides", slides)
+
+            # Strip claim tags
             slides = strip_claim_tags(slides)
 
-            # Value-add pass — maximize reader insight
-            with st.spinner("Final pass — maximizing reader value..."):
-                progress.progress(75, text="Adding sharper insights...")
+            # Final value + cohesion pass
+            with st.spinner("Final polish..."):
+                progress.progress(85, text="Final polish...")
                 slides = add_value_pass(
                     slides=slides,
                     topic=topic["title"],
-                    angle=angle,
+                    angle=angle or topic["description"],
                     audience=audience,
                 )
 
-            # Final engagement polish — 3 iterations with hook alignment
-            with st.spinner("Final engagement polish (3 iterations)..."):
-                progress.progress(80, text="Engagement polish...")
-                slides = review_and_improve(
-                    slides=slides,
-                    tone=tone,
-                    audience=audience,
-                    iterations=3,
-                    hook=hook["hook"],
-                )
-
-            # 6) Generate TikTok metadata
-            with st.spinner("Generating TikTok title & description..."):
-                progress.progress(82, text="Generating TikTok metadata...")
+            # TikTok metadata
+            with st.spinner("Generating TikTok metadata..."):
+                progress.progress(95, text="Generating metadata...")
                 metadata = generate_tiktok_metadata(
                     slides=slides,
                     topic=topic["title"],
-                    angle=angle,
+                    angle=angle or topic["description"],
                     hook=hook["hook"],
                 )
                 st.session_state.tiktok_metadata = metadata
 
-            # 7) Build PPTX
-            progress.progress(88, text="Building PPTX...")
-            filepath = build_pptx(
-                slides=slides,
-                colors=colors,
-                aspect_ratio=aspect_ratio_val,
-                output_dir="./output",
-                handle=handle,
-            )
-
-            # 8) Build PNG images
-            progress.progress(95, text="Rendering PNG slides...")
-            png_paths = build_pngs(
-                slides=slides,
-                colors=colors,
-                aspect_ratio=aspect_ratio_val,
-                output_dir="./output",
-                handle=handle,
-            )
-
             progress.progress(100, text="Done!")
 
             st.session_state.slides = slides
-            st.session_state.pptx_path = filepath
-            st.session_state.png_paths = png_paths
+            st.session_state.step = 6
             st.rerun()
 
         except anthropic.AuthenticationError:
@@ -596,55 +676,20 @@ elif st.session_state.step == 4:
             st.error(f"API error: {exc}")
             st.stop()
 
-    # ── Results ────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 6 — Edit Slides (inline editing)
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 6:
+    st.header("Step 6: Edit Your Slides")
     slides = st.session_state.slides
-    filepath = st.session_state.pptx_path
     fact_report = st.session_state.fact_check_report
-    metadata = st.session_state.tiktok_metadata
 
-    st.success(f"Generated {len(slides)} slides — fact-checked and ready to post!")
-
-    # ── Slide Preview ──────────────────────────────────────────────────────
-    st.subheader("Slide Preview")
-
-    # Character count guidance
-    BODY_MIN, BODY_IDEAL, BODY_MAX = 20, 50, 90
-    st.caption(
-        f"Body length guide: :red[< {BODY_MIN} too short] · "
-        f":green[{BODY_MIN}–{BODY_MAX} ideal] · "
-        f":red[> {BODY_MAX} too long]"
-    )
-
-    for i, slide in enumerate(slides):
-        with st.container(border=True):
-            slide_cols = st.columns([1, 12])
-            slide_cols[0].markdown(f"**{i + 1}**")
-            slide_cols[1].markdown(f"### {slide.get('title', '')}")
-            slide_cols[1].write(slide.get("body", ""))
-            if slide.get("footer"):
-                slide_cols[1].caption(slide.get("footer", ""))
-
-            # Character count bar for body text
-            body_text = slide.get("body", "")
-            char_count = len(body_text)
-            bar_value = min(char_count / BODY_MAX, 1.0)
-
-            if char_count < BODY_MIN:
-                color = "red"
-                label = f":red[{char_count} chars — too short]"
-            elif char_count <= BODY_MAX:
-                color = "green"
-                label = f":green[{char_count} chars]"
-            else:
-                color = "red"
-                label = f":red[{char_count} chars — too long]"
-
-            slide_cols[1].progress(bar_value)
-            slide_cols[1].caption(label)
+    st.success(f"Generated {len(slides)} slides — edit below, then export.")
 
     # ── Fact-Check Report ──────────────────────────────────────────────────
     if fact_report:
-        with st.expander("Fact-Check Report (Layered)", expanded=False):
+        with st.expander("Fact-Check Report", expanded=False):
             for item in fact_report:
                 slide_num = item.get("slide", "?")
                 status = item.get("status", "unknown")
@@ -656,103 +701,247 @@ elif st.session_state.step == 4:
                 else:
                     st.markdown(f"**Slide {slide_num}** — :red[flagged]  \n{notes}")
 
-    # ── Conclusion Validation Report ──────────────────────────────────────
+    # ── Conclusion Report ──────────────────────────────────────────────────
     conclusion_report = st.session_state.conclusion_report
     if conclusion_report:
-        with st.expander("Conclusion Validation (Layer 4)", expanded=False):
+        with st.expander("Conclusion Validation", expanded=False):
             logic_valid = conclusion_report.get("logic_valid", True)
             verdict_slide = conclusion_report.get("verdict_slide", "?")
             if logic_valid:
                 st.markdown(f":green[Verdict (Slide {verdict_slide}) logically follows from evidence]")
             else:
                 st.markdown(f":orange[Verdict (Slide {verdict_slide}) had logic gaps — corrected]")
-
-            evidence = conclusion_report.get("evidence_used", [])
-            if evidence:
-                st.markdown("**Evidence relied upon:**")
-                for e in evidence:
-                    st.markdown(f"- {e}")
-
             issues = conclusion_report.get("issues", [])
             if issues:
-                st.markdown("**Issues found:**")
                 for issue in issues:
                     st.markdown(f"- :orange[{issue}]")
 
-    # ── Narrative Coherence Report ────────────────────────────────────────
+    # ── Coherence Report ───────────────────────────────────────────────────
     coherence_report = st.session_state.coherence_report
     if coherence_report:
-        with st.expander("Narrative Coherence (Layer 5)", expanded=False):
+        with st.expander("Narrative Coherence", expanded=False):
             score = coherence_report.get("coherence_score", "?")
             st.markdown(f"**Coherence Score:** {score}/10")
             arc = coherence_report.get("arc_analysis", "")
             if arc:
                 st.markdown(f"**Arc:** {arc}")
-            issues = coherence_report.get("issues", [])
-            if issues:
-                st.markdown("**Issues fixed:**")
-                for issue in issues:
-                    st.markdown(f"- {issue}")
+
+    # ── Inline Slide Editing ───────────────────────────────────────────────
+    st.subheader("Slide Editor")
+
+    BODY_MIN, BODY_IDEAL, BODY_MAX = 20, 50, 90
+    st.caption(
+        f"Body length guide: :red[< {BODY_MIN} too short] · "
+        f":green[{BODY_MIN}–{BODY_MAX} ideal] · "
+        f":red[> {BODY_MAX} too long]"
+    )
+
+    edited_slides = []
+    for i, slide in enumerate(slides):
+        with st.container(border=True):
+            st.markdown(f"**Slide {i + 1}**")
+
+            title = st.text_input(
+                "Title",
+                value=slide.get("title", ""),
+                key=f"edit_title_{i}",
+                label_visibility="collapsed",
+                placeholder="Slide title",
+            )
+            body = st.text_area(
+                "Body",
+                value=slide.get("body", ""),
+                key=f"edit_body_{i}",
+                height=68,
+                label_visibility="collapsed",
+                placeholder="Slide body text",
+            )
+            footer = st.text_input(
+                "Footer",
+                value=slide.get("footer", ""),
+                key=f"edit_footer_{i}",
+                label_visibility="collapsed",
+                placeholder="source: ...",
+            )
+
+            # Character count
+            char_count = len(body)
+            bar_value = min(char_count / BODY_MAX, 1.0)
+            if char_count < BODY_MIN:
+                label = f":red[{char_count} chars — too short]"
+            elif char_count <= BODY_MAX:
+                label = f":green[{char_count} chars]"
+            else:
+                label = f":red[{char_count} chars — too long]"
+            st.progress(bar_value)
+            st.caption(label)
+
+            edited_slides.append({"title": title, "body": body, "footer": footer})
+
+    # ── TikTok Metadata Editing ────────────────────────────────────────────
+    metadata = st.session_state.tiktok_metadata
+    if metadata:
+        st.subheader("TikTok Post Copy")
+        tiktok_title = st.text_input(
+            "Video Title", value=metadata.get("title", ""), key="tiktok_title"
+        )
+        tiktok_desc = st.text_area(
+            "Description", value=metadata.get("description", ""),
+            height=160, key="tiktok_desc"
+        )
+        char_count = len(tiktok_desc)
+        if char_count >= 200:
+            st.caption(f":green[{char_count} characters] (meets 200+ requirement)")
+        else:
+            st.caption(f":red[{char_count} characters] (below 200 minimum)")
+
+    # ── Save edits & advance ───────────────────────────────────────────────
+    col_back, col_save = st.columns(2)
+
+    if col_back.button("Back (regenerate)"):
+        st.session_state.slides = []
+        st.session_state.step = 5
+        st.rerun()
+
+    if col_save.button("Save & Export", type="primary"):
+        # Save edited slides back to session state
+        st.session_state.slides = edited_slides
+        if metadata:
+            st.session_state.tiktok_metadata = {
+                "title": tiktok_title,
+                "description": tiktok_desc,
+            }
+        st.session_state.step = 7
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 7 — Export & Visualize (on-demand)
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 7:
+    st.header("Step 7: Export & Visualize")
+    slides = st.session_state.slides
+    metadata = st.session_state.tiktok_metadata
+
+    colors = {
+        "background": bg_color,
+        "title": title_color,
+        "body": body_color,
+        "accent": accent_color,
+        "highlight": highlight_color,
+    }
+
+    # ── Slide Preview ──────────────────────────────────────────────────────
+    st.subheader("Final Slides")
+    for i, slide in enumerate(slides):
+        with st.container(border=True):
+            slide_cols = st.columns([1, 12])
+            slide_cols[0].markdown(f"**{i + 1}**")
+            slide_cols[1].markdown(f"### {slide.get('title', '')}")
+            slide_cols[1].write(slide.get("body", ""))
+            if slide.get("footer"):
+                slide_cols[1].caption(slide.get("footer", ""))
 
     # ── TikTok Metadata ───────────────────────────────────────────────────
     if metadata:
         st.subheader("TikTok Post Copy")
-        st.text_input("Video Title", value=metadata.get("title", ""), key="tiktok_title")
-        description = metadata.get("description", "")
-        st.text_area("Description", value=description, height=160, key="tiktok_desc")
-        char_count = len(description)
-        if char_count >= 200:
-            st.caption(f":green[{char_count} characters] (meets 200+ requirement)")
-        else:
-            st.caption(f":red[{char_count} characters] (below 200 minimum — add more text)")
-
-    # ── Download ───────────────────────────────────────────────────────────
-    st.divider()
-    st.subheader("Download")
-
-    dl_col1, dl_col2 = st.columns(2)
-
-    with open(filepath, "rb") as f:
-        pptx_bytes = f.read()
-    dl_col1.download_button(
-        label="Download PPTX",
-        data=pptx_bytes,
-        file_name=os.path.basename(filepath),
-        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        type="primary",
-        use_container_width=True,
-    )
-
-    # ZIP all PNGs for easy camera-roll save
-    png_paths = st.session_state.png_paths
-    if png_paths:
-        import zipfile
-        zip_buf = io.BytesIO()
-        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for p in png_paths:
-                zf.write(p, os.path.basename(p))
-        zip_buf.seek(0)
-        dl_col2.download_button(
-            label="Download All PNGs (ZIP)",
-            data=zip_buf,
-            file_name=f"slides_{os.path.basename(filepath).replace('.pptx', '')}.zip",
-            mime="application/zip",
-            type="primary",
-            use_container_width=True,
+        st.markdown(f"**Title:** {metadata.get('title', '')}")
+        st.text_area(
+            "Description (copy this)",
+            value=metadata.get("description", ""),
+            height=120,
+            disabled=True,
+            key="final_tiktok_desc",
         )
 
-        # Individual slide PNGs
-        with st.expander("Individual slide images", expanded=False):
-            img_cols = st.columns(min(len(png_paths), 3))
-            for i, p in enumerate(png_paths):
-                col = img_cols[i % 3]
-                col.image(p, caption=f"Slide {i + 1}", use_container_width=True)
-                with open(p, "rb") as f:
-                    col.download_button(
-                        label=f"Slide {i + 1}",
-                        data=f.read(),
-                        file_name=os.path.basename(p),
-                        mime="image/png",
-                        key=f"png_dl_{i}",
-                        use_container_width=True,
-                    )
+    # ── Export Buttons ─────────────────────────────────────────────────────
+    st.divider()
+    st.subheader("Export")
+
+    export_col1, export_col2 = st.columns(2)
+
+    # Build PPTX on demand
+    if export_col1.button("Build PPTX", type="primary", use_container_width=True):
+        with st.spinner("Building PowerPoint..."):
+            filepath = build_pptx(
+                slides=slides,
+                colors=colors,
+                aspect_ratio=aspect_ratio_val,
+                output_dir="./output",
+                handle=handle,
+            )
+            st.session_state.pptx_path = filepath
+        st.rerun()
+
+    # Build PNGs on demand
+    if export_col2.button("Build PNGs", type="primary", use_container_width=True):
+        with st.spinner("Rendering PNG slides..."):
+            png_paths = build_pngs(
+                slides=slides,
+                colors=colors,
+                aspect_ratio=aspect_ratio_val,
+                output_dir="./output",
+                handle=handle,
+            )
+            st.session_state.png_paths = png_paths
+        st.rerun()
+
+    # ── Download Buttons ───────────────────────────────────────────────────
+    filepath = st.session_state.pptx_path
+    png_paths = st.session_state.png_paths
+
+    if filepath or png_paths:
+        st.divider()
+        st.subheader("Download")
+        dl_col1, dl_col2 = st.columns(2)
+
+        if filepath:
+            with open(filepath, "rb") as f:
+                pptx_bytes = f.read()
+            dl_col1.download_button(
+                label="Download PPTX",
+                data=pptx_bytes,
+                file_name=os.path.basename(filepath),
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if png_paths:
+            import zipfile
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for p in png_paths:
+                    zf.write(p, os.path.basename(p))
+            zip_buf.seek(0)
+            dl_col2.download_button(
+                label="Download All PNGs (ZIP)",
+                data=zip_buf,
+                file_name="slides.zip",
+                mime="application/zip",
+                type="primary",
+                use_container_width=True,
+            )
+
+            # Individual slide images
+            with st.expander("Individual slide images", expanded=False):
+                img_cols = st.columns(min(len(png_paths), 3))
+                for i, p in enumerate(png_paths):
+                    col = img_cols[i % 3]
+                    col.image(p, caption=f"Slide {i + 1}", use_container_width=True)
+                    with open(p, "rb") as f:
+                        col.download_button(
+                            label=f"Slide {i + 1}",
+                            data=f.read(),
+                            file_name=os.path.basename(p),
+                            mime="image/png",
+                            key=f"png_dl_{i}",
+                            use_container_width=True,
+                        )
+
+    # ── Back to edit ───────────────────────────────────────────────────────
+    if st.button("Back to Edit"):
+        st.session_state.pptx_path = None
+        st.session_state.png_paths = []
+        st.session_state.step = 6
+        st.rerun()

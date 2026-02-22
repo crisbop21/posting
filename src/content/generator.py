@@ -99,6 +99,159 @@ FOOTER RULES:
 # ── Layer 1: News Facts Extraction ────────────────────────────────────────────
 
 
+def consolidate_topic_data(
+    research_text: str,
+    research_facts: list[dict],
+    topic: dict,
+    audience: str,
+) -> list[dict]:
+    """Consolidate all relevant data for a specific topic into 20+ verified bullet points.
+
+    Filters the broad research to the selected topic, enriches with web search,
+    and returns a structured list of verified data points.
+
+    Args:
+        research_text: Raw research text from news/reddit.
+        research_facts: Previously extracted facts (may cover multiple topics).
+        topic: Selected topic dict with 'title' and 'description'.
+        audience: Target audience description.
+
+    Returns:
+        List of dicts, each with:
+            - "bullet": concise factual statement
+            - "value": the specific number/date/event
+            - "source": where it came from
+            - "confidence": "high" or "medium"
+    """
+    from src.research.web_search import search_claim
+
+    # Step 1: Web search for additional data on this specific topic
+    search_results = search_claim(topic["title"] + " finance", max_results=5)
+    search_context = ""
+    if search_results:
+        lines = ["ADDITIONAL WEB SEARCH RESULTS:"]
+        for r in search_results:
+            lines.append(f"- [{r['source']}] {r['title']}")
+            if r["summary"]:
+                lines.append(f"  {r['summary'][:200]}")
+        search_context = "\n".join(lines)
+
+    prompt = f"""You are a financial research analyst. Your job is to consolidate ALL relevant,
+verifiable data about one specific topic into a structured briefing.
+
+TOPIC: {topic['title']}
+DESCRIPTION: {topic['description']}
+AUDIENCE: {audience}
+
+RESEARCH DATA (from news and social media):
+{research_text}
+
+PREVIOUSLY EXTRACTED FACTS:
+{json.dumps(research_facts, indent=2)}
+
+{search_context}
+
+Your task:
+1. Filter ONLY the facts relevant to "{topic['title']}" from the research above.
+2. Add any additional relevant facts from the web search results.
+3. Produce AT LEAST 20 verified bullet points about this topic.
+4. Each bullet must be a specific, verifiable claim (with a number, date, name, or event).
+5. Discard opinions, predictions without data, and vague statements.
+6. If you cannot reach 20 bullets from the research alone, note which bullets come from
+   general knowledge and mark them with "medium" confidence.
+
+Return a JSON array of at least 20 objects:
+[
+  {{
+    "bullet": "S&P 500 rose 2.3% this week, its best weekly gain since March",
+    "value": "2.3%",
+    "source": "Bloomberg",
+    "confidence": "high"
+  }}
+]
+
+Confidence levels:
+- "high": directly stated in the research or web search results with a named source
+- "medium": inferred, aggregated, or from general knowledge
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+def research_angle(
+    topic: dict,
+    angle: str,
+    existing_bullets: list[dict],
+) -> list[dict]:
+    """Research a user-provided angle and return additional verified bullet points.
+
+    Uses web search to find data supporting the specific angle, then merges
+    with existing bullets (deduplicating).
+
+    Returns:
+        List of NEW bullet dicts to add to the existing pool.
+    """
+    from src.research.web_search import search_claim
+
+    # Search for data related to the angle
+    query = f"{topic['title']} {angle}"
+    search_results = search_claim(query, max_results=5)
+
+    search_context = ""
+    if search_results:
+        lines = []
+        for r in search_results:
+            lines.append(f"- [{r['source']}] {r['title']}")
+            if r["summary"]:
+                lines.append(f"  {r['summary'][:200]}")
+        search_context = "\n".join(lines)
+
+    prompt = f"""You are a financial research analyst. You need to find additional data
+to support a specific angle on a topic.
+
+TOPIC: {topic['title']}
+ANGLE: {angle}
+
+WEB SEARCH RESULTS FOR THIS ANGLE:
+{search_context}
+
+EXISTING VERIFIED DATA (do not duplicate):
+{json.dumps(existing_bullets, indent=2)}
+
+Find additional verifiable facts that support the angle "{angle}".
+Focus on specific numbers, dates, comparisons, and events.
+Do NOT duplicate facts already in the existing data above.
+
+Return a JSON array of new bullet points (may be fewer than 20 if data is limited):
+[
+  {{
+    "bullet": "the factual claim",
+    "value": "the specific number/date/event",
+    "source": "where it came from",
+    "confidence": "high" or "medium"
+  }}
+]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
 def extract_news_facts(research_text: str) -> list[dict]:
     """Pull structured facts (numbers, events, dates, sources) from research text.
 
@@ -217,16 +370,33 @@ Return ONLY the JSON array, no other text."""
 
 def generate_hooks(
     topic: str,
-    angle: str,
+    verified_bullets: list[dict],
     tone: str,
     audience: str,
+    angle: str = "",
 ) -> list[dict]:
-    """Generate 10 hook options using the proven hook formulas."""
+    """Generate 10 hook options grounded in verified data.
+
+    Args:
+        topic: Topic title.
+        verified_bullets: List of verified bullet point dicts from consolidate_topic_data.
+        tone: Desired tone.
+        audience: Target audience.
+        angle: Optional user-provided angle for additional context.
+    """
+    bullets_text = "\n".join(
+        f"- {b['bullet']} (source: {b.get('source', 'unknown')}, confidence: {b.get('confidence', 'medium')})"
+        for b in verified_bullets
+    )
+    angle_block = f"\nUser's angle: {angle}\n" if angle else ""
+
     prompt = f"""You are a viral finance content creator. Your audience is: {audience}.
 Tone: {tone}.
 
 Topic: {topic}
-Angle / key information: {angle}
+{angle_block}
+VERIFIED DATA AVAILABLE (use ONLY these numbers in your hooks):
+{bullets_text}
 
 {HOOK_FORMULAS}
 
@@ -239,17 +409,20 @@ Every hook MUST use "you/your" direct address where possible.
 Every hook MUST create an open loop (promise a reveal).
 
 FACTUAL ACCURACY (critical):
-- If the topic/angle contains specific numbers, percentages, or dollar amounts — USE them in hooks.
-- If NO specific number is available, use directional/descriptive language instead (e.g. "surging",
-  "at historic lows", "quietly building"). Do NOT invent a specific number.
-- NEVER fabricate a price, percentage, or statistic. A truthful hook without a number is better
-  than a hook with a made-up number.
+- You MUST ONLY use numbers, percentages, and dollar amounts from the VERIFIED DATA above.
+- Pick the most compelling data points from the bullet list to embed in each hook.
+- If a formula needs a number that isn't in the verified data, use directional language instead.
+- NEVER fabricate a price, percentage, or statistic not in the verified data above.
+
+Also evaluate which hook formulas are the BEST FIT for the available data and rank them.
 
 Return your response as a JSON array of 10 objects, each with:
-- "hook": The hook text (11-18 words, include a specific number ONLY if one is available from the topic/angle)
-- "style": The formula name used (e.g. "Data Dig", "Comparison Shock", "Hidden Gem List", etc.)
+- "hook": The hook text (11-18 words, using numbers from verified data only)
+- "style": The formula name used (e.g. "Data Dig", "Comparison Shock", etc.)
+- "fit_score": 1-10 rating of how well this formula fits the available data (10 = perfect fit)
+- "data_used": which verified bullet(s) this hook references
 
-Return ONLY the JSON array, no other text."""
+Return ONLY the JSON array, no other text. Sort by fit_score descending (best fit first)."""
 
     response = create_message(
         model="claude-sonnet-4-20250514",
