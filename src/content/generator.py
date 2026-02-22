@@ -494,29 +494,31 @@ Angle / key information: {angle}
 Opening hook (use this EXACTLY as the first slide title): {hook}
 {facts_block}
 STRICT REQUIREMENTS:
-- Slide 1 title MUST be the hook above (copy it exactly)
-- Slide 2 MUST be a re-hook — a standalone entry point with a different angle on the same topic
-- Data slides SHOULD each contain one key data fact — but ONLY use verified numbers from the research
-- If you don't have enough verified facts for slides 3 to {slide_count - 2}, use fewer data slides
-  or use directional language ("rising sharply", "outpacing rivals") instead of fabricating numbers
-- Slide {slide_count - 1} MUST be the verdict — one-sentence takeaway
-- Slide {slide_count} MUST be a CTA ("save this", "comment below", "follow for more")
-- ALL text must be lowercase except ticker symbols ($AAPL, $BTC) and numbers
-- Each slide body: ONE sentence, under 15 words
+- You MUST produce EXACTLY {slide_count} slides — no more, no fewer.
+- Slide 1 title MUST be the hook above (copy it EXACTLY, character for character, do NOT rephrase).
+- Slide 2 MUST be a re-hook — a standalone entry point with a different angle on the same topic.
+- Data slides SHOULD each contain one key data fact — but ONLY use verified numbers from the research.
+- For data slides where you don't have a verified number, use insight, analysis, context, or
+  directional language ("rising sharply", "outpacing rivals") — but you MUST still produce the slide.
+- Slide {slide_count - 1} MUST be the verdict — one-sentence takeaway.
+- Slide {slide_count} MUST be a CTA ("save this", "comment below", "follow for more").
+- ALL text must be lowercase except ticker symbols ($AAPL, $BTC) and numbers.
+- Each slide body: ONE sentence, under 15 words.
 - No filler. Every slide must make the viewer want to swipe.
 
-FACTUAL ACCURACY (overrides everything):
+FACTUAL ACCURACY (overrides everything EXCEPT slide count):
 - NEVER invent a specific price, percentage, or dollar amount that is not in the research facts.
-- If a data point is missing, use directional or comparative language instead.
-- It is BETTER to have fewer slides than to fill slides with fabricated numbers.
+- If a data point is missing, use directional/comparative language or insightful analysis instead.
+- You MUST still produce exactly {slide_count} slides — fill non-data slides with context, insight,
+  or analysis rather than skipping them.
 
 STORYTELLING & COHESION:
 - The slides must tell ONE cohesive story — each slide builds on the previous.
 - Data slides should follow: context → tension → insight → payoff.
 - Never repeat the same type of fact back-to-back; alternate comparison, trend, and surprise.
 - A reader who sees slides 1-N should feel like they followed a narrative, not read a list.
-- If the available verified facts don't fit the standard slide structure, CHANGE THE STRUCTURE
-  to fit the facts. Cohesion always beats rigid formatting.
+- If the available verified facts don't fit the standard slide structure, adapt the content type
+  per slide (data, insight, context, analysis) but ALWAYS produce exactly {slide_count} slides.
 
 Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers/numbers)
@@ -558,11 +560,13 @@ Ask yourself for each slide:
 - Is the overall story cohesive — does each slide naturally lead to the next?
 
 COHESION CHECK:
-- If the story feels disconnected, you MAY reorder, merge, or restructure slides.
+- If the story feels disconnected, you MAY reorder or restructure slides.
 - If a slide breaks the narrative flow, rewrite it to connect to the surrounding slides.
-- You may REMOVE a slide if it damages cohesion (return fewer slides).
+- You MUST NOT remove or merge slides — always return the same number as the input.
 
 RULES:
+- You MUST return EXACTLY {len(slides)} slides — same count as the input.
+- Slide 1 title MUST remain EXACTLY as-is — do NOT change it.
 - Keep the same structure (title, body, footer) for each slide.
 - Keep all text lowercase except tickers and numbers.
 - Keep body under 15 words per slide.
@@ -695,6 +699,8 @@ For each slide claim tagged as "supporting_data" (or general knowledge claims):
 4. Status: "verified", "corrected", or "flagged" (uncertain — needs human review).
 
 IMPORTANT:
+- You MUST return EXACTLY the same number of slides as the input — never add or remove slides
+- Slide 1 title MUST remain EXACTLY as-is — do NOT change it
 - Keep the same slide structure (title, body, footer, and claims if present)
 - Keep all text lowercase except ticker symbols and numbers
 - Keep every slide under 15 words for body text
@@ -782,7 +788,8 @@ If the conclusion has logic gaps:
 - Ensure the verdict references the strongest evidence presented
 
 RULES:
-- Keep the same slide structure and count
+- You MUST return EXACTLY {len(slides)} slides — same count as the input
+- Slide 1 title MUST remain EXACTLY as-is — do NOT change it
 - Keep all text lowercase except tickers and numbers
 - Keep body under 15 words per slide
 - Maintain the claims tags if present
@@ -856,19 +863,19 @@ ALSO CHECK:
 If the narrative has problems:
 - REORDER slides if the arc is wrong (e.g., the most surprising fact should build toward the end)
 - REWRITE transitions so each slide logically leads to the next
-- REMOVE or REPLACE any slide that breaks the narrative thread
-- You MAY change the number of slides if removing a disconnected slide improves the story
-- You MAY restructure the deck (merge slides, change order, split a slide) to improve cohesion
-- Cohesion is MORE important than keeping a rigid slide count
+- REPLACE a weak slide's content — but you MUST keep the same total number of slides
+- You MAY restructure the deck (change order, rewrite content) to improve cohesion
+- You MUST NOT change the total number of slides — always return the same count as the input
 
 RULES:
+- You MUST return EXACTLY {len(slides)} slides — same count as the input
 - Keep all text lowercase except tickers and numbers
 - Keep body under 15 words per slide
 - Data slides should have a number, %, or $ — but ONLY if verified. Use directional language if not.
 - Footer: short source attribution only, no hashtags, no emojis
-- Slide 1 title MUST remain the hook exactly as written
+- Slide 1 title MUST remain the hook EXACTLY as written: "{hook}" — do NOT change it
 - NEVER introduce new numbers, prices, or statistics that aren't already in the slides.
-  You can reword, reorder, or remove — but never add unverified data.
+  You can reword, reorder, or replace content — but never add unverified data.
 
 Return your response as JSON:
 {{
@@ -968,6 +975,8 @@ CORRECT the slide to match the current data.
 
 IMPORTANT:
 - Trust the search results over the slide content for current prices, levels, and percentages
+- You MUST return EXACTLY the same number of slides as the input — never add or remove slides
+- Slide 1 title MUST remain EXACTLY as-is — do NOT change it
 - Keep the same slide structure (title, body, footer)
 - Keep all text lowercase except ticker symbols and numbers
 - Keep every slide under 15 words for body text
@@ -1004,6 +1013,40 @@ Return ONLY the JSON, no other text."""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def enforce_hook_and_count(
+    slides: list[dict],
+    hook: str,
+    expected_count: int,
+) -> list[dict]:
+    """Enforce that slide 1 uses the exact hook text and slide count matches.
+
+    - Restores the hook as slide 1 title if any pass changed it.
+    - If a pass returned fewer slides than expected, pads with placeholder slides.
+    - If a pass returned more slides than expected, truncates (keeping CTA at end).
+    """
+    if not slides:
+        return slides
+
+    # Restore hook on slide 1
+    slides[0]["title"] = hook
+
+    # Fix slide count
+    if len(slides) < expected_count:
+        # Pad before the last slide (CTA) with context slides
+        cta = slides[-1]
+        while len(slides) < expected_count:
+            slides.insert(-1, {
+                "title": "more to consider",
+                "body": "(this slide needs content — edit in step 6)",
+                "footer": "",
+            })
+    elif len(slides) > expected_count:
+        # Keep slide 1 (hook), trim middle, keep last slide (CTA)
+        slides = slides[:expected_count - 1] + [slides[-1]]
+
+    return slides
 
 
 def strip_claim_tags(slides: list[dict]) -> list[dict]:
