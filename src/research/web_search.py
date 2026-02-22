@@ -9,6 +9,8 @@ from email.utils import parsedate_to_datetime
 
 import feedparser
 
+from src.research.text_utils import sanitize_text
+
 
 def search_claim(query: str, max_results: int = 5) -> list[dict]:
     """Search for recent information about a specific claim.
@@ -42,10 +44,10 @@ def search_claim(query: str, max_results: int = 5) -> list[dict]:
                 .replace("&amp;", "&")
             )
             results.append({
-                "title": entry.get("title", ""),
-                "source": entry.get("source", {}).get("title", "Unknown"),
+                "title": sanitize_text(entry.get("title", "")),
+                "source": sanitize_text(entry.get("source", {}).get("title", "Unknown")),
                 "published": entry.get("published", ""),
-                "summary": summary[:300],
+                "summary": sanitize_text(summary[:300]),
                 "link": entry.get("link", ""),
             })
     except Exception as e:

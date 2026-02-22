@@ -6,6 +6,8 @@ from datetime import datetime
 
 import praw
 
+from src.research.text_utils import sanitize_text
+
 
 @dataclass
 class RedditPost:
@@ -56,12 +58,12 @@ def fetch_reddit_topics(
                     continue
                 posts.append(
                     RedditPost(
-                        title=post.title,
+                        title=sanitize_text(post.title),
                         subreddit=sub_name,
                         score=post.score,
                         num_comments=post.num_comments,
                         url=post.url,
-                        selftext=post.selftext[:500] if post.selftext else "",
+                        selftext=sanitize_text(post.selftext[:500]) if post.selftext else "",
                     )
                 )
         except Exception as e:

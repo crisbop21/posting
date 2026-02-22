@@ -6,6 +6,8 @@ from email.utils import parsedate_to_datetime
 
 import feedparser
 
+from src.research.text_utils import sanitize_text
+
 
 @dataclass
 class NewsItem:
@@ -84,11 +86,11 @@ def fetch_news_topics(
                     continue
                 items.append(
                     NewsItem(
-                        title=entry.get("title", ""),
-                        source=entry.get("source", {}).get("title", "Unknown"),
+                        title=sanitize_text(entry.get("title", "")),
+                        source=sanitize_text(entry.get("source", {}).get("title", "Unknown")),
                         published=published,
                         link=entry.get("link", ""),
-                        summary=entry.get("summary", ""),
+                        summary=sanitize_text(entry.get("summary", "")),
                     )
                 )
                 count += 1
