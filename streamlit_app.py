@@ -3,8 +3,8 @@
 Flow:
   1. Research & Pick a Topic
   2. Consolidate Data (20+ verified bullet points)
-  3. Choose a Hook (grounded in verified data)
-  4. Provide Angle & Additional Data
+  3. Provide Angle & Additional Data
+  4. Choose a Hook (grounded in verified data, informed by angle)
   5. Generate & Verify Slides (consolidated checks)
   6. Edit Slides (inline editing)
   7. Export & Visualize (on-demand)
@@ -144,6 +144,23 @@ def _require_api_key():
     os.environ["ANTHROPIC_API_KEY"] = api_key
 
 
+def _safe_get_slides(result, fallback: list[dict]) -> list[dict]:
+    """Safely extract corrected_slides from a pipeline result.
+
+    Handles cases where _parse_json returns a list instead of a dict,
+    or where corrected_slides is missing or has an unexpected type.
+    """
+    if isinstance(result, list):
+        # LLM returned a bare list of slides
+        return result if all(isinstance(s, dict) for s in result) else fallback
+    if isinstance(result, dict):
+        slides = result.get("corrected_slides", fallback)
+        if isinstance(slides, list) and all(isinstance(s, dict) for s in slides):
+            return slides
+        return fallback
+    return fallback
+
+
 # ── Session state defaults ────────────────────────────────────────────────────
 
 for key, default in {
@@ -174,8 +191,8 @@ for key, default in {
 step_labels = [
     "1. Topic",
     "2. Data",
-    "3. Hook",
-    "4. Angle",
+    "3. Angle",
+    "4. Hook",
     "5. Generate",
     "6. Edit",
     "7. Export",
@@ -352,85 +369,25 @@ elif st.session_state.step == 2:
         st.session_state.step = 1
         st.rerun()
 
-    if col_next.button("Continue to Hooks", type="primary"):
+    if col_next.button("Continue to Angle", type="primary"):
         st.session_state.step = 3
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 3: Choose a Hook (grounded in verified data)
+# STEP 3: Provide Angle & Additional Data
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 3:
-    st.header("Step 3: Choose a Hook")
+    st.header("Step 3: Your Angle & Data")
     topic = st.session_state.selected_topic
-    bullets = st.session_state.verified_bullets
-
-    st.info(f"**Topic:** {topic['title']}  \n**Data points:** {len(bullets)} verified")
-
-    if not st.session_state.hook_options:
-        _require_api_key()
-        try:
-            with st.spinner("Generating hooks grounded in your verified data..."):
-                hooks = generate_hooks(
-                    topic=topic["title"],
-                    verified_bullets=bullets,
-                    tone=tone,
-                    audience=audience,
-                )
-                st.session_state.hook_options = hooks
-                st.rerun()
-        except anthropic.AuthenticationError:
-            st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
-            st.stop()
-        except anthropic.APIError as exc:
-            st.error(f"API error: {exc}")
-            st.stop()
-
-    hooks = st.session_state.hook_options
-    hook_labels = []
-    for h in hooks:
-        fit = h.get("fit_score", "?")
-        hook_labels.append(f"[{h['style']} | fit: {fit}/10] {h['hook']}")
-
-    selected_hook_idx = st.radio(
-        "Pick the hook for your opening slide (sorted by best fit)",
-        range(len(hook_labels)),
-        format_func=lambda i: hook_labels[i],
-    )
-
-    # Show which data the selected hook uses
-    selected = hooks[selected_hook_idx]
-    if selected.get("data_used"):
-        st.caption(f"Data used: {selected['data_used']}")
-
-    col_back, col_next = st.columns(2)
-    if col_back.button("Back"):
-        st.session_state.hook_options = []
-        st.session_state.step = 2
-        st.rerun()
-
-    if col_next.button("Continue", type="primary"):
-        st.session_state.selected_hook = hooks[selected_hook_idx]
-        st.session_state.step = 4
-        st.rerun()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 4: Provide Angle & Additional Data
-# ══════════════════════════════════════════════════════════════════════════════
-
-elif st.session_state.step == 4:
-    st.header("Step 4: Your Angle & Data")
-    topic = st.session_state.selected_topic
-    hook = st.session_state.selected_hook
     bullets = st.session_state.verified_bullets
 
     st.info(
         f"**Topic:** {topic['title']}  \n"
-        f"**Hook:** {hook['hook']}  \n"
         f"**Data points:** {len(bullets)} verified"
     )
 
-    st.write("Choose how to add your perspective:")
+    st.write("Choose how to add your perspective (this will help generate better hooks):")
 
     tab_angle, tab_data = st.tabs(["Provide an Angle", "Add Your Own Data"])
 
@@ -551,7 +508,7 @@ elif st.session_state.step == 4:
 
     col_back, col_next = st.columns(2)
     if col_back.button("Back"):
-        st.session_state.step = 3
+        st.session_state.step = 2
         st.rerun()
 
     # Only allow proceeding if angle was verified or user added data
@@ -560,13 +517,81 @@ elif st.session_state.step == 4:
     can_proceed = angle_verified or has_user_facts or bullet_count >= 20
 
     if col_next.button(
-        "Generate Slides",
+        "Continue to Hooks",
         type="primary",
         disabled=not can_proceed,
         help="Research an angle or add your data first" if not can_proceed else "",
     ):
         if not st.session_state.angle:
             st.session_state.angle = ""
+        # Clear hooks so they regenerate with the angle
+        st.session_state.hook_options = []
+        st.session_state.selected_hook = None
+        st.session_state.step = 4
+        st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4: Choose a Hook (grounded in verified data, informed by angle)
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif st.session_state.step == 4:
+    st.header("Step 4: Choose a Hook")
+    topic = st.session_state.selected_topic
+    bullets = st.session_state.verified_bullets
+    current_angle = st.session_state.angle
+
+    angle_display = f"**Angle:** {current_angle}  \n" if current_angle else ""
+    st.info(
+        f"**Topic:** {topic['title']}  \n"
+        f"{angle_display}"
+        f"**Data points:** {len(bullets)} verified"
+    )
+
+    if not st.session_state.hook_options:
+        _require_api_key()
+        try:
+            with st.spinner("Generating hooks grounded in your verified data..."):
+                hooks = generate_hooks(
+                    topic=topic["title"],
+                    verified_bullets=bullets,
+                    tone=tone,
+                    audience=audience,
+                    angle=current_angle,
+                )
+                st.session_state.hook_options = hooks
+                st.rerun()
+        except anthropic.AuthenticationError:
+            st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+            st.stop()
+        except anthropic.APIError as exc:
+            st.error(f"API error: {exc}")
+            st.stop()
+
+    hooks = st.session_state.hook_options
+    hook_labels = []
+    for h in hooks:
+        fit = h.get("fit_score", "?")
+        hook_labels.append(f"[{h['style']} | fit: {fit}/10] {h['hook']}")
+
+    selected_hook_idx = st.radio(
+        "Pick the hook for your opening slide (sorted by best fit)",
+        range(len(hook_labels)),
+        format_func=lambda i: hook_labels[i],
+    )
+
+    # Show which data the selected hook uses
+    selected = hooks[selected_hook_idx]
+    if selected.get("data_used"):
+        st.caption(f"Data used: {selected['data_used']}")
+
+    col_back, col_next = st.columns(2)
+    if col_back.button("Back"):
+        st.session_state.hook_options = []
+        st.session_state.step = 3
+        st.rerun()
+
+    if col_next.button("Generate Slides", type="primary"):
+        st.session_state.selected_hook = hooks[selected_hook_idx]
         st.session_state.step = 5
         st.rerun()
 
@@ -632,9 +657,11 @@ elif st.session_state.step == 5:
                         slides, research_text, bullets,
                         topic["title"], angle or topic["description"],
                     )
+                    if not isinstance(fc_result, dict):
+                        fc_result = {"corrected_slides": slides}
                     layer_a = fc_result.get("layer_a_report", [])
                     layer_b = fc_result.get("layer_b_report", [])
-                    slides = fc_result.get("corrected_slides", slides)
+                    slides = _safe_get_slides(fc_result, slides)
                     slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
                 fact_report = []
@@ -660,8 +687,10 @@ elif st.session_state.step == 5:
                     ws_result = web_search_fact_check(
                         slides, topic["title"], angle or topic["description"],
                     )
+                    if not isinstance(ws_result, dict):
+                        ws_result = {"corrected_slides": slides}
                     ws_report = ws_result.get("search_report", [])
-                    slides = ws_result.get("corrected_slides", slides)
+                    slides = _safe_get_slides(ws_result, slides)
                     slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
                     corrected_count = sum(
@@ -688,11 +717,13 @@ elif st.session_state.step == 5:
                     slides, bullets, topic["title"],
                     angle or topic["description"],
                 )
+                if not isinstance(conclusion_result, dict):
+                    conclusion_result = {"corrected_slides": slides}
                 st.session_state.conclusion_report = conclusion_result
                 if not conclusion_result.get("logic_valid", True):
                     issues = conclusion_result.get("issues", [])
                     st.toast(f"Fixed {len(issues)} logic gap(s) in conclusion")
-                slides = conclusion_result.get("corrected_slides", slides)
+                slides = _safe_get_slides(conclusion_result, slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Narrative coherence check
@@ -702,10 +733,12 @@ elif st.session_state.step == 5:
                     slides, topic["title"],
                     angle or topic["description"], hook_text,
                 )
+                if not isinstance(coherence_result, dict):
+                    coherence_result = {"corrected_slides": slides}
                 st.session_state.coherence_report = coherence_result
                 coherence_score = coherence_result.get("coherence_score", 0)
                 st.toast(f"Narrative coherence: {coherence_score}/10")
-                slides = coherence_result.get("corrected_slides", slides)
+                slides = _safe_get_slides(coherence_result, slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Strip claim tags
@@ -721,9 +754,9 @@ elif st.session_state.step == 5:
                     audience=audience,
                     hook=hook_text,
                 )
-                if isinstance(value_result, list):
-                    value_result = {"corrected_slides": value_result}
-                slides = value_result.get("corrected_slides", slides)
+                if not isinstance(value_result, dict):
+                    value_result = {"corrected_slides": _safe_get_slides(value_result, slides)}
+                slides = _safe_get_slides(value_result, slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
                 # Update coherence report with the final score
                 final_score = value_result.get("coherence_score", coherence_score)
@@ -756,6 +789,9 @@ elif st.session_state.step == 5:
             st.stop()
         except anthropic.APIError as exc:
             st.error(f"API error: {exc}")
+            st.stop()
+        except Exception as exc:
+            st.error(f"Slide generation failed: {type(exc).__name__}: {exc}")
             st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
