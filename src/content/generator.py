@@ -3,8 +3,6 @@
 import json
 import re
 
-import anthropic
-
 from src.api import create_message
 
 HOOK_FORMULAS = """
