@@ -51,7 +51,7 @@ def build_pptx(
     colors: dict,
     aspect_ratio: str = "9:16",
     output_dir: str = "./output",
-    handle: str = "@posting",
+    handle: str = "@cristian.bojaca",
 ) -> str:
     """Build a PPTX file from slide content.
 
