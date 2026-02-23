@@ -19,6 +19,7 @@ from src.content.generator import (
     validate_conclusion,
     check_narrative_coherence,
     strip_claim_tags,
+    add_value_pass,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
@@ -191,25 +192,34 @@ def run(config_path: str = "config.yaml") -> None:
         print("  Conclusion corrected.")
     slides = conclusion_result.get("corrected_slides", slides)
 
-    # ── Layer 5: Narrative coherence (2 iterations) ─────────────────────
-    max_coherence_rounds = 2
-    for coh_round in range(1, max_coherence_rounds + 1):
-        print(f"\nLayer 5: Checking narrative coherence (round {coh_round}/{max_coherence_rounds})...")
-        coherence_result = check_narrative_coherence(
-            slides, chosen_topic["title"], angle, chosen_hook["hook"],
-        )
-        score = coherence_result.get("coherence_score", "?")
-        print(f"  Coherence score: {score}/10")
-        arc = coherence_result.get("arc_analysis", "")
-        if arc:
-            print(f"  Arc: {arc}")
-        for issue in coherence_result.get("issues", []):
-            print(f"    Fixed: {issue}")
-        slides = coherence_result.get("corrected_slides", slides)
-        # Stop early if score is already high
-        if isinstance(score, (int, float)) and score >= 9:
-            print("  Coherence is strong, skipping further rounds.")
-            break
+    # ── Layer 5: Narrative coherence ──────────────────────────────────
+    print("\nLayer 5: Checking narrative coherence...")
+    coherence_result = check_narrative_coherence(
+        slides, chosen_topic["title"], angle, chosen_hook["hook"],
+    )
+    score = coherence_result.get("coherence_score", "?")
+    print(f"  Coherence score: {score}/10")
+    arc = coherence_result.get("arc_analysis", "")
+    if arc:
+        print(f"  Arc: {arc}")
+    for issue in coherence_result.get("issues", []):
+        print(f"    Fixed: {issue}")
+    slides = coherence_result.get("corrected_slides", slides)
+
+    # ── Final combined value + cohesion pass ──────────────────────────
+    print("\nFinal pass: value + cohesion polish...")
+    value_result = add_value_pass(
+        slides=slides,
+        topic=chosen_topic["title"],
+        angle=angle,
+        audience=audience,
+        hook=chosen_hook["hook"],
+    )
+    slides = value_result.get("corrected_slides", slides)
+    final_score = value_result.get("coherence_score", score)
+    print(f"  Final coherence: {final_score}/10")
+    for issue in value_result.get("issues", []):
+        print(f"    Fixed: {issue}")
 
     # Strip claim tags for final output
     slides = strip_claim_tags(slides)

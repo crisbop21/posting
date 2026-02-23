@@ -69,7 +69,7 @@ def build_pngs(
     colors: dict,
     aspect_ratio: str = "9:16",
     output_dir: str = "./output",
-    handle: str = "@posting",
+    handle: str = "@cristian.bojaca",
 ) -> list[str]:
     """Render each slide as a PNG image.
 

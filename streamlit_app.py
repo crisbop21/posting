@@ -104,7 +104,7 @@ accent_color = col2.color_picker("Accent", colors_cfg.get("accent", "#58A6FF"))
 highlight_color = col1.color_picker("Highlight", colors_cfg.get("highlight", "#F0883E"))
 
 st.sidebar.subheader("Branding")
-handle = st.sidebar.text_input("Account handle", slides_cfg.get("handle", "@posting"))
+handle = st.sidebar.text_input("Account handle", slides_cfg.get("handle", "@cristian.bojaca"))
 
 st.sidebar.subheader("Research")
 available_sources = ["news", "reddit"]
@@ -695,40 +695,42 @@ elif st.session_state.step == 5:
                 slides = conclusion_result.get("corrected_slides", slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
-            # Narrative coherence (2 iterations for stronger cohesion)
-            max_coherence_rounds = 2
-            for coh_round in range(1, max_coherence_rounds + 1):
-                with st.spinner(f"Ensuring story cohesion (round {coh_round}/{max_coherence_rounds})..."):
-                    progress.progress(
-                        70 + (coh_round * 5),
-                        text=f"Checking narrative coherence (round {coh_round})...",
-                    )
-                    coherence_result = check_narrative_coherence(
-                        slides, topic["title"],
-                        angle or topic["description"], hook_text,
-                    )
-                    st.session_state.coherence_report = coherence_result
-                    coherence_score = coherence_result.get("coherence_score", 0)
-                    st.toast(f"Narrative coherence (round {coh_round}): {coherence_score}/10")
-                    slides = coherence_result.get("corrected_slides", slides)
-                    slides = enforce_hook_and_count(slides, hook_text, slide_count)
-                    # Stop early if score is already high
-                    if isinstance(coherence_score, (int, float)) and coherence_score >= 9:
-                        break
+            # Narrative coherence check
+            with st.spinner("Checking narrative coherence..."):
+                progress.progress(70, text="Checking narrative coherence...")
+                coherence_result = check_narrative_coherence(
+                    slides, topic["title"],
+                    angle or topic["description"], hook_text,
+                )
+                st.session_state.coherence_report = coherence_result
+                coherence_score = coherence_result.get("coherence_score", 0)
+                st.toast(f"Narrative coherence: {coherence_score}/10")
+                slides = coherence_result.get("corrected_slides", slides)
+                slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
             # Strip claim tags
             slides = strip_claim_tags(slides)
 
-            # Final value + cohesion pass
-            with st.spinner("Final polish..."):
+            # Final combined value + cohesion pass
+            with st.spinner("Final polish (value + cohesion)..."):
                 progress.progress(85, text="Final polish...")
-                slides = add_value_pass(
+                value_result = add_value_pass(
                     slides=slides,
                     topic=topic["title"],
                     angle=angle or topic["description"],
                     audience=audience,
+                    hook=hook_text,
                 )
+                slides = value_result.get("corrected_slides", slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
+                # Update coherence report with the final score
+                final_score = value_result.get("coherence_score", coherence_score)
+                st.session_state.coherence_report = {
+                    "coherence_score": final_score,
+                    "arc_analysis": value_result.get("arc_analysis", ""),
+                    "issues": value_result.get("issues", []),
+                }
+                st.toast(f"Final coherence: {final_score}/10")
 
             # TikTok metadata
             with st.spinner("Generating TikTok metadata..."):

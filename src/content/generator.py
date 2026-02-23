@@ -63,7 +63,7 @@ SLIDE RULES (strict, follow exactly):
   (e.g. "rising sharply", "near all time highs") instead of making one up.
 - Slide 1 = Hook. Slide 2 = Re-hook (works standalone for mid scroll entry). Final slide = CTA.
 - No filler slides. Every slide must make the viewer want to swipe.
-- Text style: all lowercase except ticker symbols and numbers.
+- Text style: all lowercase except ticker symbols, numbers, proper nouns (Nasdaq, Tesla, Fed), and acronyms (AI, GDP, IPO).
 
 Slide structure:
 - Slide 1: Hook. The headline event + open loop.
@@ -503,7 +503,7 @@ STRICT REQUIREMENTS:
   directional language ("rising sharply", "outpacing rivals"), but you MUST still produce the slide.
 - Slide {slide_count - 1} MUST be the verdict, the one sentence takeaway.
 - Slide {slide_count} MUST be a CTA that drives comments first ("what would you do?", "drop your take below", "agree or disagree?"). Can also include a save or follow prompt.
-- ALL text must be lowercase except ticker symbols ($AAPL, $BTC) and numbers.
+- ALL text must be lowercase except ticker symbols ($AAPL, $BTC), numbers, proper nouns (Nasdaq, Tesla, Fed), and acronyms (AI, GDP, IPO).
 - Each slide body: ONE sentence, under 15 words.
 - No filler. Every slide must make the viewer want to swipe.
 
@@ -522,7 +522,7 @@ STORYTELLING AND COHESION:
   per slide (data, insight, context, analysis) but ALWAYS produce exactly {slide_count} slides.
 
 Return your response as a JSON array of slide objects. Each slide must have:
-- "title": The headline (under 15 words, lowercase except tickers/numbers)
+- "title": The headline (under 15 words, lowercase except tickers, numbers, proper nouns, and acronyms)
 - "body": One sentence of content (under 15 words, include a verified number if available)
 - "footer": Short source attribution only (e.g. "source: Bloomberg"). NO hashtags, NO emojis. Leave blank if no source.{claims_instruction}
 {claims_schema}
@@ -539,37 +539,55 @@ Return ONLY the JSON array, no other text."""
     return _parse_json(text)
 
 
-def add_value_pass(slides: list[dict], topic: str, angle: str, audience: str) -> list[dict]:
-    """Final iteration: maximize reader value without adding clutter.
+def add_value_pass(
+    slides: list[dict], topic: str, angle: str, audience: str, hook: str = "",
+) -> dict:
+    """Final combined pass: maximize reader value AND narrative coherence in one shot.
 
     Looks for opportunities to replace generic claims with sharper data,
-    add actionable insight, or strengthen the narrative thread.
+    add actionable insight, strengthen the narrative thread, and score cohesion.
+
+    Returns dict with:
+        - "corrected_slides": the improved slides
+        - "coherence_score": 1 to 10 rating of narrative flow
+        - "arc_analysis": brief description of the narrative arc
+        - "issues": list of any problems fixed
     """
     prompt = f"""You are a senior finance content editor. Your reader is: {audience}.
 
 Topic: {topic}
 Angle: {angle}
+Hook: {hook}
 
 Here are the current slides:
 {json.dumps(slides, indent=2)}
 
-Your job: ONE final pass to maximize the value a reader gets from this deck.
-Ask yourself for each slide:
-- Does this slide teach something or just state the obvious?
-- Does the narrative arc build tension and deliver a satisfying payoff?
-- Is every slide earning its place, or would the deck be weaker without it?
-- Is the overall story cohesive? Does each slide naturally lead to the next?
+Your job: ONE comprehensive pass that covers BOTH value AND narrative coherence.
 
-COHESION CHECK:
-- If the story feels disconnected, you MAY reorder or restructure slides.
-- If a slide breaks the narrative flow, rewrite it to connect to the surrounding slides.
-- You MUST NOT remove or merge slides. Always return the same number as the input.
+PART 1, VALUE CHECK. For each slide ask:
+- Does this slide teach something or just state the obvious?
+- Is every slide earning its place, or would the deck be weaker without it?
+
+PART 2, NARRATIVE COHERENCE. Check each transition:
+- Hook to Re-hook: do they approach the topic from complementary angles?
+- Re-hook to first data slide: is the transition smooth?
+- Data slides: do they build from context to tension to insight to payoff?
+  No two similar fact types should be adjacent.
+  Each slide should feel like it NEEDS to come after the previous one.
+- Data to Verdict: does the last data point set up the takeaway?
+- Verdict to CTA: does the CTA feel earned? Does it drive comments?
+- Does every slide connect back to the hook's promise?
+- Is there a clear "so what?" moment where context becomes insight?
+- Would a reader feel satisfied at the end?
+
+If the narrative has problems, REORDER or REWRITE slides to fix the flow.
+If a slide breaks the narrative, rewrite it to connect to its neighbors.
 
 RULES:
 - You MUST return EXACTLY {len(slides)} slides, same count as the input.
 - Slide 1 title MUST remain EXACTLY as-is. Do NOT change it.
 - Keep the same structure (title, body, footer) for each slide.
-- Keep all text lowercase except tickers and numbers.
+- Keep all text lowercase except tickers, numbers, proper nouns, and acronyms.
 - Keep body under 15 words per slide.
 - Footer: short source attribution only. No hashtags, no emojis.
 - Do NOT add filler or fluff. Only improve, never dilute.
@@ -583,12 +601,17 @@ FACTUAL INTEGRITY (overrides all other rules):
   number. Improve the wording and framing instead.
 - If you are unsure whether a specific price, percentage, or figure is current, leave it as-is.
 
-Return your response as a JSON array of the improved slides:
-[
-  {{"title": "...", "body": "...", "footer": "..."}}
-]
+Return your response as JSON:
+{{
+  "coherence_score": 8,
+  "arc_analysis": "brief description of the narrative arc",
+  "issues": ["any issue fixed"],
+  "corrected_slides": [
+    {{"title": "...", "body": "...", "footer": "..."}}
+  ]
+}}
 
-Return ONLY the JSON array, no other text."""
+Return ONLY the JSON, no other text."""
 
     response = create_message(
         model="claude-sonnet-4-20250514",
@@ -617,7 +640,7 @@ For EACH slide, do the following:
 
 IMPORTANT:
 - Keep the same slide structure (title, body, footer)
-- Keep all text lowercase except ticker symbols and numbers
+- Keep all text lowercase except ticker symbols, numbers, proper nouns, and acronyms
 - Keep every slide under 15 words for body text
 - Every slide must still contain a specific number, % or $
 - Do NOT add filler. Maintain the punchy style
@@ -703,7 +726,7 @@ IMPORTANT:
 - You MUST return EXACTLY the same number of slides as the input, never add or remove slides
 - Slide 1 title MUST remain EXACTLY as-is. Do NOT change it
 - Keep the same slide structure (title, body, footer, and claims if present)
-- Keep all text lowercase except ticker symbols and numbers
+- Keep all text lowercase except ticker symbols, numbers, proper nouns, and acronyms
 - Keep every slide under 15 words for body text
 - Every slide must still contain a specific number, % or $
 - Maintain the punchy style
@@ -791,7 +814,7 @@ If the conclusion has logic gaps:
 RULES:
 - You MUST return EXACTLY {len(slides)} slides, same count as the input
 - Slide 1 title MUST remain EXACTLY as-is. Do NOT change it
-- Keep all text lowercase except tickers and numbers
+- Keep all text lowercase except tickers, numbers, proper nouns, and acronyms
 - Keep body under 15 words per slide
 - Maintain the claims tags if present
 
@@ -870,7 +893,7 @@ If the narrative has problems:
 
 RULES:
 - You MUST return EXACTLY {len(slides)} slides, same count as the input
-- Keep all text lowercase except tickers and numbers
+- Keep all text lowercase except tickers, numbers, proper nouns, and acronyms
 - Keep body under 15 words per slide
 - Data slides should have a number, %, or $, but ONLY if verified. Use directional language if not.
 - Footer: short source attribution only, no hashtags, no emojis
@@ -979,7 +1002,7 @@ IMPORTANT:
 - You MUST return EXACTLY the same number of slides as the input, never add or remove slides
 - Slide 1 title MUST remain EXACTLY as-is. Do NOT change it
 - Keep the same slide structure (title, body, footer)
-- Keep all text lowercase except ticker symbols and numbers
+- Keep all text lowercase except ticker symbols, numbers, proper nouns, and acronyms
 - Keep every slide under 15 words for body text
 - Every slide must still contain a specific number, % or $
 - Maintain the punchy style
