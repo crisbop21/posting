@@ -2,7 +2,7 @@
 
 Creates a fresh client for every request to avoid any internal state
 accumulation (e.g. duplicate tool_use IDs across calls), and retries
-on transient errors with exponential back-off.
+on transient errors with exponential backoff.
 """
 
 import time
@@ -50,7 +50,7 @@ def create_message(*, model: str, max_tokens: int, messages: list, **kwargs):
             _backoff(attempt)
             continue
 
-    # All retries exhausted — raise the last error.
+    # All retries exhausted, raise the last error.
     raise last_error  # type: ignore[misc]
 
 

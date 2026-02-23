@@ -35,7 +35,7 @@ def _calc_title_layout(title_text: str, avail_width_inches: float):
     for font_pt, cpl in tiers:
         lines = max(1, math.ceil(len(title_text) / max(cpl, 1)))
         if lines <= max_lines:
-            line_h_in = (font_pt * line_height_factor) / 72  # pt → inches
+            line_h_in = (font_pt * line_height_factor) / 72  # pt to inches
             box_h = lines * line_h_in + 0.15  # small padding
             return font_pt, box_h
 
@@ -178,7 +178,7 @@ def build_pptx(
         body_p.space_after = Pt(0)
         body_p.line_spacing = Pt(44)
 
-        # -- Handle: centered, small, muted — bottom of slide --
+        # -- Handle: centered, small, muted, bottom of slide --
         handle_box = slide.shapes.add_textbox(
             0,
             slide_h - Inches(0.9),
