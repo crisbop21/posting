@@ -19,6 +19,7 @@ import yaml
 
 from src.research.news import fetch_news_topics, format_news_for_prompt
 from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
+from src.research.web_search import search_claim
 from src.content.generator import (
     suggest_topics,
     generate_hooks,
@@ -278,50 +279,103 @@ if st.session_state.step > 1:
 
 if st.session_state.step == 1:
     st.header("Step 1: Pick a Topic")
-    st.write("We'll research the latest trends and suggest 10 topics for your slide deck.")
 
-    if st.button("Research Topics", type="primary", use_container_width=True):
+    research_mode = st.radio(
+        "How do you want to find a topic?",
+        ["Latest News", "Custom Topic"],
+        horizontal=True,
+        help="Choose 'Latest News' to research trending stories, or 'Custom Topic' to provide your own subject.",
+    )
+
+    if research_mode == "Custom Topic":
+        st.write("Enter a topic and we'll research it across news sources, then suggest 10 angles.")
+        custom_topic = st.text_input(
+            "Topic to research",
+            placeholder="e.g. Tesla earnings Q4, Bitcoin ETF inflows, Fed interest rate decision",
+        )
+        research_btn = st.button(
+            "Research This Topic",
+            type="primary",
+            use_container_width=True,
+            disabled=not custom_topic,
+        )
+    else:
+        st.write("We'll research the latest trends and suggest 10 topics for your slide deck.")
+        custom_topic = ""
+        research_btn = st.button("Research Topics", type="primary", use_container_width=True)
+
+    if research_btn:
         _require_api_key()
 
-        with st.spinner("Fetching latest trends (last 48 hours only)..."):
+        with st.spinner(
+            f"Researching '{custom_topic}'..."
+            if custom_topic
+            else "Fetching latest trends (last 48 hours only)..."
+        ):
             research_parts = []
 
-            if "news" in sources:
-                news_items = fetch_news_topics(topics)
-                if news_items:
-                    st.toast(f"Found {len(news_items)} recent articles, fact checking...")
+            if custom_topic:
+                # Custom topic: search news specifically for this subject
+                custom_query = custom_topic.replace(" ", "+")
+                custom_news = fetch_news_topics([custom_topic], max_per_topic=10)
+                if custom_news:
+                    st.toast(f"Found {len(custom_news)} articles about '{custom_topic}'")
+                    research_parts.append(format_news_for_prompt(custom_news))
 
-                    raw_news = format_news_for_prompt(news_items)
-                    try:
-                        verdicts = fact_check_news(raw_news)
-                        corrections = {
-                            v["index"]: v for v in verdicts
-                            if v.get("status") == "corrected"
-                        }
-                        for idx, verdict in corrections.items():
-                            if 1 <= idx <= len(news_items):
-                                item = news_items[idx - 1]
-                                item.title = verdict.get("corrected_title", item.title)
-                                item.summary = verdict.get("corrected_summary", item.summary)
+                # Also search via web_search for broader coverage
+                web_results = search_claim(custom_topic + " finance", max_results=10)
+                if web_results:
+                    lines = [f"=== Web Search: {custom_topic} ===\n"]
+                    for i, r in enumerate(web_results, 1):
+                        lines.append(f"{i}. [{r['source']}] {r['title']}")
+                        if r["summary"]:
+                            lines.append(f"   {r['summary'][:200]}")
+                        lines.append(f"   Published: {r['published']}")
+                        lines.append("")
+                    research_parts.append("\n".join(lines))
+                    st.toast(f"Found {len(web_results)} additional web results")
 
-                        if corrections:
-                            st.toast(
-                                f"Corrected {len(corrections)} article(s), "
-                                f"all {len(news_items)} now factual"
-                            )
-                        else:
-                            st.toast(f"All {len(news_items)} articles verified")
-                    except Exception:
-                        st.toast("Fact check unavailable, using articles as is")
+                if not research_parts:
+                    st.error(f"No results found for '{custom_topic}'. Try a different query.")
+                    st.stop()
+            else:
+                # Original flow: latest news + Reddit
+                if "news" in sources:
+                    news_items = fetch_news_topics(topics)
+                    if news_items:
+                        st.toast(f"Found {len(news_items)} recent articles, fact checking...")
 
-                    research_parts.append(format_news_for_prompt(news_items))
-                else:
-                    st.toast("No news articles found in the last 48 hours")
+                        raw_news = format_news_for_prompt(news_items)
+                        try:
+                            verdicts = fact_check_news(raw_news)
+                            corrections = {
+                                v["index"]: v for v in verdicts
+                                if v.get("status") == "corrected"
+                            }
+                            for idx, verdict in corrections.items():
+                                if 1 <= idx <= len(news_items):
+                                    item = news_items[idx - 1]
+                                    item.title = verdict.get("corrected_title", item.title)
+                                    item.summary = verdict.get("corrected_summary", item.summary)
 
-            if "reddit" in sources:
-                reddit_posts = fetch_reddit_topics(subreddits)
-                research_parts.append(format_reddit_for_prompt(reddit_posts))
-                st.toast(f"Found {len(reddit_posts)} Reddit posts")
+                            if corrections:
+                                st.toast(
+                                    f"Corrected {len(corrections)} article(s), "
+                                    f"all {len(news_items)} now factual"
+                                )
+                            else:
+                                st.toast(f"All {len(news_items)} articles verified")
+                        except Exception:
+                            st.toast("Fact check unavailable, using articles as is")
+
+                        research_parts.append(format_news_for_prompt(news_items))
+                    else:
+                        st.toast("No news articles found in the last 48 hours")
+
+                if "reddit" in sources:
+                    reddit_posts = fetch_reddit_topics(subreddits)
+                    research_parts.append(format_reddit_for_prompt(reddit_posts))
+                    st.toast(f"Found {len(reddit_posts)} Reddit posts")
 
             research_text = "\n\n".join(research_parts)
             empty_markers = {"No news articles found.", "No Reddit posts found."}
