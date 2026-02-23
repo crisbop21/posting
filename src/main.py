@@ -215,6 +215,8 @@ def run(config_path: str = "config.yaml") -> None:
         audience=audience,
         hook=chosen_hook["hook"],
     )
+    if isinstance(value_result, list):
+        value_result = {"corrected_slides": value_result}
     slides = value_result.get("corrected_slides", slides)
     final_score = value_result.get("coherence_score", score)
     print(f"  Final coherence: {final_score}/10")
