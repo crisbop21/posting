@@ -46,6 +46,12 @@ content:
     Make it feel urgent and timely. Use hooks that grab attention.
     Each slide should be digestible in under 5 seconds of reading.
 
+# Canva integration (optional, for alternative AI-designed slides)
+# Get credentials at https://www.canva.dev/console → Create integration
+canva:
+  client_id: ""
+  client_secret: ""
+
 # Output
 output:
   directory: "./output"

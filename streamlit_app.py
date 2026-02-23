@@ -39,6 +39,12 @@ from src.content.generator import (
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 from src.slides.png_builder import build_pngs
+from src.slides.canva_builder import (
+    get_oauth_url,
+    exchange_code_for_token,
+    refresh_access_token,
+    build_canva_slides,
+)
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -135,6 +141,48 @@ style_notes = st.sidebar.text_area(
     height=100,
 )
 
+st.sidebar.subheader("Canva (optional)")
+canva_cfg = config.get("canva", {})
+canva_client_id = st.sidebar.text_input(
+    "Canva Client ID",
+    value=canva_cfg.get("client_id", ""),
+    type="password",
+)
+canva_client_secret = st.sidebar.text_input(
+    "Canva Client Secret",
+    value=canva_cfg.get("client_secret", ""),
+    type="password",
+)
+canva_enabled = bool(canva_client_id and canva_client_secret)
+
+# Handle Canva OAuth callback
+_query_params = st.query_params
+if "code" in _query_params and "state" in _query_params:
+    canva_code = _query_params.get("code", "")
+    canva_state = _query_params.get("state", "")
+    if canva_state == "canva" and canva_code and canva_enabled:
+        try:
+            _app_url = st.context.headers.get("Origin", "http://localhost:8501")
+            token_data = exchange_code_for_token(
+                canva_code, canva_client_id, canva_client_secret,
+                redirect_uri=_app_url,
+            )
+            st.session_state["canva_access_token"] = token_data["access_token"]
+            st.session_state["canva_refresh_token"] = token_data.get("refresh_token", "")
+            st.query_params.clear()
+            st.toast("Canva connected!")
+            st.rerun()
+        except Exception as exc:
+            st.sidebar.error(f"Canva OAuth failed: {exc}")
+
+if canva_enabled:
+    if st.session_state.get("canva_access_token"):
+        st.sidebar.success("Canva connected")
+    else:
+        _app_url = st.context.headers.get("Origin", "http://localhost:8501")
+        _oauth_url = get_oauth_url(canva_client_id, redirect_uri=_app_url)
+        st.sidebar.link_button("Connect Canva", _oauth_url)
+
 # ── Helper: ensure API key is set ─────────────────────────────────────────────
 
 def _require_api_key():
@@ -182,6 +230,7 @@ for key, default in {
     "tiktok_metadata": None,
     "pptx_path": None,
     "png_paths": [],
+    "canva_result": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -976,7 +1025,11 @@ elif st.session_state.step == 7:
     st.divider()
     st.subheader("Export")
 
-    export_col1, export_col2 = st.columns(2)
+    has_canva = canva_enabled and st.session_state.get("canva_access_token")
+    if has_canva:
+        export_col1, export_col2, export_col3 = st.columns(3)
+    else:
+        export_col1, export_col2 = st.columns(2)
 
     # Build PPTX on demand
     if export_col1.button("Build PPTX", type="primary", use_container_width=True):
@@ -1003,6 +1056,25 @@ elif st.session_state.step == 7:
             )
             st.session_state.png_paths = png_paths
         st.rerun()
+
+    # Build with Canva on demand
+    if has_canva:
+        if export_col3.button("Build with Canva", type="secondary", use_container_width=True):
+            with st.spinner("Generating Canva design (this may take a moment)..."):
+                try:
+                    canva_result = build_canva_slides(
+                        slides=slides,
+                        access_token=st.session_state["canva_access_token"],
+                        topic=st.session_state.selected_topic["title"],
+                        aspect_ratio=aspect_ratio_val,
+                        colors=colors,
+                    )
+                    st.session_state.canva_result = canva_result
+                except Exception as exc:
+                    st.error(f"Canva build failed: {exc}")
+            st.rerun()
+    elif canva_enabled:
+        st.caption("Connect your Canva account in the sidebar to enable Canva export.")
 
     # ── Download Buttons ───────────────────────────────────────────────────
     filepath = st.session_state.pptx_path
@@ -1057,9 +1129,38 @@ elif st.session_state.step == 7:
                             use_container_width=True,
                         )
 
+    # ── Canva Result ──────────────────────────────────────────────────────
+    canva_result = st.session_state.canva_result
+    if canva_result:
+        st.divider()
+        st.subheader("Canva Design")
+        canva_col1, canva_col2 = st.columns(2)
+        edit_url = canva_result.get("edit_url", "")
+        export_url = canva_result.get("export_url", "")
+        if edit_url:
+            canva_col1.link_button(
+                "Edit in Canva",
+                edit_url,
+                type="primary",
+                use_container_width=True,
+            )
+        if export_url:
+            canva_col2.link_button(
+                "Download Canva PNG",
+                export_url,
+                use_container_width=True,
+            )
+        if not edit_url and not export_url:
+            st.warning("Canva design was created but no URLs were returned.")
+        st.caption(
+            "Open in Canva to customize fonts, colors, and layouts. "
+            "Compare with the local PNGs above to choose your favorite."
+        )
+
     # ── Back to edit ───────────────────────────────────────────────────────
     if st.button("Back to Edit"):
         st.session_state.pptx_path = None
         st.session_state.png_paths = []
+        st.session_state.canva_result = None
         st.session_state.step = 6
         st.rerun()
