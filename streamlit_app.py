@@ -721,6 +721,8 @@ elif st.session_state.step == 5:
                     audience=audience,
                     hook=hook_text,
                 )
+                if isinstance(value_result, list):
+                    value_result = {"corrected_slides": value_result}
                 slides = value_result.get("corrected_slides", slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
                 # Update coherence report with the final score

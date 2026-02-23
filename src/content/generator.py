@@ -620,7 +620,12 @@ Return ONLY the JSON, no other text."""
     )
 
     text = _extract_text(response)
-    return _parse_json(text)
+    result = _parse_json(text)
+    # The LLM may return a plain list of slides instead of the expected dict.
+    # Wrap it so callers always get a consistent dict.
+    if isinstance(result, list):
+        result = {"corrected_slides": result, "coherence_score": 0, "arc_analysis": "", "issues": []}
+    return result
 
 
 def fact_check_slides(slides: list[dict], topic: str, angle: str) -> dict:
