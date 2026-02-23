@@ -45,6 +45,7 @@ from src.slides.canva_builder import (
     refresh_access_token,
     build_canva_slides,
 )
+from src.slides.canva_mcp import generate_alternative_slides
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -231,6 +232,7 @@ for key, default in {
     "pptx_path": None,
     "png_paths": [],
     "canva_result": None,
+    "mcp_alternatives": [],
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -1076,6 +1078,42 @@ elif st.session_state.step == 7:
     elif canva_enabled:
         st.caption("Connect your Canva account in the sidebar to enable Canva export.")
 
+    # Generate alternative versions via Canva MCP
+    if has_canva:
+        st.divider()
+        st.subheader("Alternative Versions (Canva MCP)")
+        st.caption(
+            "Generate multiple design variations via the Canva MCP server. "
+            "Each alternative uses a different visual style so you can compare and pick the best one."
+        )
+        mcp_cols = st.columns([2, 1])
+        num_alts = mcp_cols[1].selectbox(
+            "Number of alternatives",
+            [2, 3, 4],
+            index=0,
+            key="mcp_num_alts",
+        )
+        if mcp_cols[0].button(
+            "Generate Alternative Versions",
+            type="primary",
+            use_container_width=True,
+            key="mcp_generate_btn",
+        ):
+            with st.spinner("Creating alternative designs via Canva MCP..."):
+                try:
+                    alts = generate_alternative_slides(
+                        slides=slides,
+                        access_token=st.session_state["canva_access_token"],
+                        topic=st.session_state.selected_topic["title"],
+                        aspect_ratio=aspect_ratio_val,
+                        colors=colors,
+                        num_alternatives=num_alts,
+                    )
+                    st.session_state.mcp_alternatives = alts
+                except Exception as exc:
+                    st.error(f"MCP alternative generation failed: {exc}")
+            st.rerun()
+
     # ── Download Buttons ───────────────────────────────────────────────────
     filepath = st.session_state.pptx_path
     png_paths = st.session_state.png_paths
@@ -1157,10 +1195,45 @@ elif st.session_state.step == 7:
             "Compare with the local PNGs above to choose your favorite."
         )
 
+    # ── MCP Alternative Versions ─────────────────────────────────────────
+    mcp_alts = st.session_state.mcp_alternatives
+    if mcp_alts:
+        st.divider()
+        st.subheader("Alternative Design Versions")
+        alt_cols = st.columns(min(len(mcp_alts), 4))
+        for i, alt in enumerate(mcp_alts):
+            col = alt_cols[i % len(alt_cols)]
+            with col:
+                st.markdown(f"**{alt['version']}**")
+                st.caption(f"Style: {alt['style']}")
+                if alt.get("error"):
+                    st.error(f"Failed: {alt['error']}")
+                else:
+                    if alt.get("edit_url"):
+                        st.link_button(
+                            "Edit in Canva",
+                            alt["edit_url"],
+                            type="primary",
+                            use_container_width=True,
+                        )
+                    if alt.get("export_url"):
+                        st.link_button(
+                            "Download PNG",
+                            alt["export_url"],
+                            use_container_width=True,
+                        )
+                    if not alt.get("edit_url") and not alt.get("export_url"):
+                        st.warning("Created but no URLs returned.")
+        st.caption(
+            "Each alternative uses a different visual style. "
+            "Open in Canva to further customize, or compare side-by-side."
+        )
+
     # ── Back to edit ───────────────────────────────────────────────────────
     if st.button("Back to Edit"):
         st.session_state.pptx_path = None
         st.session_state.png_paths = []
         st.session_state.canva_result = None
+        st.session_state.mcp_alternatives = []
         st.session_state.step = 6
         st.rerun()
