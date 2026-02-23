@@ -18,7 +18,7 @@ class NewsItem:
     summary: str
 
 
-# Base search queries per topic (without date filter — added dynamically)
+# Base search queries per topic (without date filter, added dynamically)
 _TOPIC_QUERIES = {
     "stocks": "stock+market+today",
     "crypto": "cryptocurrency+bitcoin",

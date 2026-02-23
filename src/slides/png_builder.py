@@ -1,4 +1,4 @@
-"""Render slides as PNG images using Pillow — mirrors the PPTX layout."""
+"""Render slides as PNG images using Pillow. Mirrors the PPTX layout."""
 
 import io
 import math
@@ -9,7 +9,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 
 
-# Font paths — Liberation is metric-compatible with Arial / Times New Roman.
+# Font paths: Liberation is metric compatible with Arial and Times New Roman.
 # Fall back to DejaVu if Liberation isn't available.
 _FONT_PATHS = {
     "sans": "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",

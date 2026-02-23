@@ -10,75 +10,76 @@ from src.api import create_message
 HOOK_FORMULAS = """
 TOP 10 HOOK FORMULAS (use these structural templates):
 
-1. DATA DIG — "[Stock/event] just [happened]. I analyzed [X] days/years of data to find out what happens every time."
-   Why it works: leads with a specific event and promises a data-backed reveal.
+1. DATA DIG: "[Stock/event] just [happened]. I analyzed [X] days/years of data to find out what happens every time."
+   Why it works: leads with a specific event and promises a data backed reveal.
 
-2. COMPARISON SHOCK — "[Thing A] is up [X%]. [Thing B] is up [Y%]. You think [belief]. You're wrong."
+2. COMPARISON SHOCK: "[Thing A] is up [X%]. [Thing B] is up [Y%]. You think [belief]. You're wrong."
    Why it works: contrasts two data points and challenges the reader's assumption.
 
-3. HIDDEN GEM LIST — "I [research effort] to find [X] [things] that [remarkable outcome] since [time span]."
+3. HIDDEN GEM LIST: "I [research effort] to find [X] [things] that [remarkable outcome] since [time span]."
    Why it works: implies effort and exclusivity, promising curated insight.
 
-4. CONTRARIAN CALL — "Stop [common action]. This is what [topic] actually [truth/needs]."
+4. CONTRARIAN CALL: "Stop [common action]. This is what [topic] actually [truth/needs]."
    Why it works: challenges conventional wisdom, triggering curiosity.
 
-5. COUNTDOWN TRIGGER — "Next week could [dramatic consequence]. These [X] events matter more than you think."
+5. COUNTDOWN TRIGGER: "Next week could [dramatic consequence]. These [X] events matter more than you think."
    Why it works: adds urgency with a time element and promises insider context.
 
-6. AUTHORITY INSIDER — "[Institution/Billionaire] just [dramatic action]. [Bold claim about implications]."
+6. AUTHORITY INSIDER: "[Institution/Billionaire] just [dramatic action]. [Bold claim about implications]."
    Why it works: borrows credibility from a known authority figure.
 
-7. OBSCURE STORY — "[Country/Company] [dramatic event X months ago]. The [name] trade explained."
-   Why it works: introduces a little-known event and promises an explanation.
+7. OBSCURE STORY: "[Country/Company] [dramatic event X months ago]. The [name] trade explained."
+   Why it works: introduces a little known event and promises an explanation.
 
-8. EXPERIENCE PLAY — "After [X] years in [field]. Here is what they don't tell you about [topic]."
+8. EXPERIENCE PLAY: "After [X] years in [field]. Here is what they don't tell you about [topic]."
    Why it works: uses personal authority and promises hidden knowledge.
 
-9. SMART MONEY TRACKER — "[Billionaire/Fund] just put $[X]B into [stock] while everyone is selling."
+9. SMART MONEY TRACKER: "[Billionaire/Fund] just put $[X]B into [stock] while everyone is selling."
    Why it works: contrasts smart money vs. crowd behavior, triggering FOMO.
 
-10. PANIC REVERSAL — "[Stock/Market] is down [X%] you panic sell. Here is the [time] that save you."
+10. PANIC REVERSAL: "[Stock/Market] is down [X%] you panic sell. Here is the [time] that save you."
     Why it works: addresses fear directly and promises a calming data point.
 """
 
 HOOK_RULES = """
 HOOK RULES (best practices for engagement):
-- If a specific number, percentage, or dollar amount is available from the topic/angle, USE IT — concrete data outperforms vague claims
-- If NO verified number is available, use directional language ("surging", "at record levels", "plummeting") — do NOT invent a number
+- If a specific number, percentage, or dollar amount is available from the topic/angle, USE IT. Concrete data outperforms vague claims
+- If NO verified number is available, use directional language ("surging", "at record levels", "plummeting"). Do NOT invent a number
 - Use "you/your" direct address to make it personal
-- Keep hooks 11-18 words — long enough for substance, short enough to scan
-- Use data-signalling words ("analyzed", "data", "years") to imply research
+- Keep hooks 11 to 18 words, long enough for substance, short enough to scan
+- Use data signaling words ("analyzed", "data", "years") to imply research
 - NEVER fabricate specific numbers, prices, or percentages that aren't in the topic or angle
 - NEVER use generic hype language ("this stock went up 800%")
-- ALWAYS create an "open loop" — promise a specific reveal
+- ALWAYS create an "open loop" that promises a specific reveal
 - Accuracy over impact: a vague but truthful hook is ALWAYS better than a specific but wrong one
 """
 
 SLIDE_RULES = """
-SLIDE RULES (strict — follow exactly):
-- Maximum 6-8 slides per carousel.
+SLIDE RULES (strict, follow exactly):
+- Maximum 6 to 8 slides per carousel.
 - Each slide: ONE idea, ONE sentence, under 15 words.
-- Data slides SHOULD have a specific number, percentage, or dollar amount — but ONLY if the data
+- Data slides SHOULD have a specific number, percentage, or dollar amount, but ONLY if the data
   is verified from research. If no verified number is available, use directional language
-  (e.g. "rising sharply", "near all-time highs") instead of making one up.
-- Slide 1 = Hook. Slide 2 = Re-hook (works standalone for mid-scroll entry). Final slide = CTA.
+  (e.g. "rising sharply", "near all time highs") instead of making one up.
+- Slide 1 = Hook. Slide 2 = Re-hook (works standalone for mid scroll entry). Final slide = CTA.
 - No filler slides. Every slide must make the viewer want to swipe.
 - Text style: all lowercase except ticker symbols and numbers.
 
 Slide structure:
-- Slide 1: Hook — the headline event + open loop
-- Slide 2: Re-hook — standalone entry point with a different angle
-- Slides 3-N: Data — one key fact per slide, comparative or surprising
-- Second-to-last slide: Verdict — the takeaway in one sentence
-- Last slide: CTA — "save this", "comment below", "follow for update"
+- Slide 1: Hook. The headline event + open loop.
+- Slide 2: Re-hook. Standalone entry point with a different angle.
+- Slides 3 to N: Data. One key fact per slide, comparative or surprising.
+- Second to last slide: Verdict. The takeaway in one sentence.
+- Last slide: CTA. Lead with a question or prompt that drives comments ("what do you think?",
+  "drop your take below", "agree or disagree?"). Then include a save or follow prompt.
 - This structure is a GUIDELINE. If the story flows better with a different order or fewer data
   slides, adapt it. Cohesion matters more than rigid structure.
 
 STORYTELLING (critical):
 - The slides MUST tell a cohesive story with a clear narrative arc.
-- Each slide should logically lead to the next — the viewer should NEED to swipe.
-- Structure the data slides as a build-up: context → tension → insight → payoff.
-- Never repeat the same type of fact back-to-back; alternate between comparison, trend, and surprise.
+- Each slide should logically lead to the next. The viewer should NEED to swipe.
+- Structure the data slides as a build up: context, then tension, then insight, then payoff.
+- Never repeat the same type of fact back to back; alternate between comparison, trend, and surprise.
 - The verdict slide should feel like a satisfying conclusion to the story, not a random opinion.
 - If the available facts don't fit the standard structure, CHANGE THE STRUCTURE to fit the facts.
   Never force facts into a structure that makes the story feel disconnected.
@@ -87,12 +88,12 @@ FACTUAL ACCURACY (overrides all other rules):
 - Accuracy always beats specificity. A slide with directional language is better than one with a wrong number.
 - NEVER invent, guess, or round numbers that aren't from verified research.
 - If you don't have enough verified data points for the requested slide count, reduce the number of
-  data slides rather than filling them with made-up stats.
+  data slides rather than filling them with made up stats.
 
 FOOTER RULES:
-- Footer is a SHORT source attribution (e.g. "source: bloomberg", "data: fed reserve", "per SEC filing").
-- NO hashtags. NO emojis. NO self-promotion.
-- Keep footers to 3-5 words max. Leave blank if no source needed.
+- Footer is a SHORT source attribution (e.g. "source: Bloomberg", "data: Federal Reserve", "per SEC filing").
+- NO hashtags. NO emojis. NO self promotion.
+- Keep footers to 3 to 5 words max. Leave blank if no source needed.
 """
 
 
@@ -111,7 +112,7 @@ def consolidate_topic_data(
     and returns a structured list of verified data points.
 
     Args:
-        research_text: Raw research text from news/reddit.
+        research_text: Raw research text from news and Reddit.
         research_facts: Previously extracted facts (may cover multiple topics).
         topic: Selected topic dict with 'title' and 'description'.
         audience: Target audience description.
@@ -273,7 +274,7 @@ For EACH distinct fact, extract:
 4. The source it came from (article name, outlet, or "multiple sources")
 5. Confidence: "high" if directly stated with a source, "medium" if inferred or aggregated
 
-Focus on VERIFIABLE claims — skip opinions, predictions, and vague statements.
+Focus on VERIFIABLE claims. Skip opinions, predictions, and vague statements.
 
 Return your response as a JSON array:
 [
@@ -315,11 +316,11 @@ def fact_check_news(news_text: str) -> list[dict]:
 For EACH article:
 1. Check if the headline and summary are consistent (no clickbait mismatch).
 2. Check if any specific claims (numbers, %, $, company names, events) seem plausible.
-3. If an article has inaccurate claims, misleading framing, or outdated info — CORRECT it.
+3. If an article has inaccurate claims, misleading framing, or outdated info, CORRECT it.
    Rewrite the title and summary so they are factually accurate while keeping the same trending topic.
 4. If the article is accurate, keep the original title and summary as-is.
 
-Return your response as a JSON array — one object per article:
+Return your response as a JSON array, one object per article:
 [
   {{
     "index": 1,
@@ -461,7 +462,7 @@ VERIFIED FACTS FROM RESEARCH (use these as your primary data source):
 GROUNDING RULES:
 - ONLY use facts from the research above. Every data slide MUST reference at least one research fact.
 - If you use a fact from the research, tag it as "news_source".
-- If you MUST add context not in the research, tag it as "supporting_data" — but NEVER invent
+- If you MUST add context not in the research, tag it as "supporting_data", but NEVER invent
   specific prices, percentages, or dollar amounts from general knowledge. These go stale quickly.
 - For supporting_data claims, use relative/directional language (e.g. "up significantly") rather than
   specific numbers you are not certain about. Only use exact figures that come from the research.
@@ -494,14 +495,14 @@ Angle / key information: {angle}
 Opening hook (use this EXACTLY as the first slide title): {hook}
 {facts_block}
 STRICT REQUIREMENTS:
-- You MUST produce EXACTLY {slide_count} slides — no more, no fewer.
+- You MUST produce EXACTLY {slide_count} slides, no more, no fewer.
 - Slide 1 title MUST be the hook above (copy it EXACTLY, character for character, do NOT rephrase).
-- Slide 2 MUST be a re-hook — a standalone entry point with a different angle on the same topic.
-- Data slides SHOULD each contain one key data fact — but ONLY use verified numbers from the research.
+- Slide 2 MUST be a re-hook, a standalone entry point with a different angle on the same topic.
+- Data slides SHOULD each contain one key data fact, but ONLY use verified numbers from the research.
 - For data slides where you don't have a verified number, use insight, analysis, context, or
-  directional language ("rising sharply", "outpacing rivals") — but you MUST still produce the slide.
-- Slide {slide_count - 1} MUST be the verdict — one-sentence takeaway.
-- Slide {slide_count} MUST be a CTA ("save this", "comment below", "follow for more").
+  directional language ("rising sharply", "outpacing rivals"), but you MUST still produce the slide.
+- Slide {slide_count - 1} MUST be the verdict, the one sentence takeaway.
+- Slide {slide_count} MUST be a CTA that drives comments first ("what would you do?", "drop your take below", "agree or disagree?"). Can also include a save or follow prompt.
 - ALL text must be lowercase except ticker symbols ($AAPL, $BTC) and numbers.
 - Each slide body: ONE sentence, under 15 words.
 - No filler. Every slide must make the viewer want to swipe.
@@ -509,21 +510,21 @@ STRICT REQUIREMENTS:
 FACTUAL ACCURACY (overrides everything EXCEPT slide count):
 - NEVER invent a specific price, percentage, or dollar amount that is not in the research facts.
 - If a data point is missing, use directional/comparative language or insightful analysis instead.
-- You MUST still produce exactly {slide_count} slides — fill non-data slides with context, insight,
+- You MUST still produce exactly {slide_count} slides. Fill non-data slides with context, insight,
   or analysis rather than skipping them.
 
-STORYTELLING & COHESION:
-- The slides must tell ONE cohesive story — each slide builds on the previous.
-- Data slides should follow: context → tension → insight → payoff.
-- Never repeat the same type of fact back-to-back; alternate comparison, trend, and surprise.
-- A reader who sees slides 1-N should feel like they followed a narrative, not read a list.
+STORYTELLING AND COHESION:
+- The slides must tell ONE cohesive story where each slide builds on the previous.
+- Data slides should follow: context, then tension, then insight, then payoff.
+- Never repeat the same type of fact back to back; alternate comparison, trend, and surprise.
+- A reader who sees all slides should feel like they followed a narrative, not read a list.
 - If the available verified facts don't fit the standard slide structure, adapt the content type
   per slide (data, insight, context, analysis) but ALWAYS produce exactly {slide_count} slides.
 
 Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers/numbers)
 - "body": One sentence of content (under 15 words, include a verified number if available)
-- "footer": Short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis. Leave blank if no source.{claims_instruction}
+- "footer": Short source attribution only (e.g. "source: Bloomberg"). NO hashtags, NO emojis. Leave blank if no source.{claims_instruction}
 {claims_schema}
 Return ONLY the JSON array, no other text."""
 
@@ -556,22 +557,22 @@ Your job: ONE final pass to maximize the value a reader gets from this deck.
 Ask yourself for each slide:
 - Does this slide teach something or just state the obvious?
 - Does the narrative arc build tension and deliver a satisfying payoff?
-- Is every slide earning its place — would the deck be weaker without it?
-- Is the overall story cohesive — does each slide naturally lead to the next?
+- Is every slide earning its place, or would the deck be weaker without it?
+- Is the overall story cohesive? Does each slide naturally lead to the next?
 
 COHESION CHECK:
 - If the story feels disconnected, you MAY reorder or restructure slides.
 - If a slide breaks the narrative flow, rewrite it to connect to the surrounding slides.
-- You MUST NOT remove or merge slides — always return the same number as the input.
+- You MUST NOT remove or merge slides. Always return the same number as the input.
 
 RULES:
-- You MUST return EXACTLY {len(slides)} slides — same count as the input.
-- Slide 1 title MUST remain EXACTLY as-is — do NOT change it.
+- You MUST return EXACTLY {len(slides)} slides, same count as the input.
+- Slide 1 title MUST remain EXACTLY as-is. Do NOT change it.
 - Keep the same structure (title, body, footer) for each slide.
 - Keep all text lowercase except tickers and numbers.
 - Keep body under 15 words per slide.
 - Footer: short source attribution only. No hashtags, no emojis.
-- Do NOT add filler or fluff. Only improve — never dilute.
+- Do NOT add filler or fluff. Only improve, never dilute.
 - If a slide is already strong, leave it unchanged.
 
 FACTUAL INTEGRITY (overrides all other rules):
@@ -579,7 +580,7 @@ FACTUAL INTEGRITY (overrides all other rules):
   Your training data may be outdated. Only use numbers that already exist in the slides.
 - NEVER add new statistics, prices, or percentages that aren't already in the slides.
 - If a slide uses vague language (e.g. "rising sharply"), do NOT replace it with a specific
-  number — improve the wording and framing instead.
+  number. Improve the wording and framing instead.
 - If you are unsure whether a specific price, percentage, or figure is current, leave it as-is.
 
 Return your response as a JSON array of the improved slides:
@@ -619,7 +620,7 @@ IMPORTANT:
 - Keep all text lowercase except ticker symbols and numbers
 - Keep every slide under 15 words for body text
 - Every slide must still contain a specific number, % or $
-- Do NOT add filler — maintain the punchy style
+- Do NOT add filler. Maintain the punchy style
 - If a slide is factually sound, keep it as-is
 
 Return your response as JSON with this structure:
@@ -684,23 +685,23 @@ SLIDES TO FACT-CHECK:
 
 Perform TWO layers of fact-checking:
 
-LAYER A — NEWS-SOURCED CLAIMS:
+LAYER A, NEWS SOURCED CLAIMS:
 For each slide claim tagged as "news_source" (or any claim that references the research):
 1. Find the matching fact in the original research text above.
 2. Verify the slide's claim EXACTLY matches the source data (numbers, names, dates).
-3. If the claim distorts, exaggerates, or misquotes the source — CORRECT it to match the research.
+3. If the claim distorts, exaggerates, or misquotes the source, CORRECT it to match the research.
 4. Status: "verified" (matches research), "corrected" (fixed to match), or "unverifiable" (not found in research).
 
-LAYER B — SUPPORTING DATA CLAIMS:
+LAYER B, SUPPORTING DATA CLAIMS:
 For each slide claim tagged as "supporting_data" (or general knowledge claims):
 1. Assess whether the claim is factually plausible based on your knowledge.
 2. Check for outdated statistics, wrong magnitudes, or common misconceptions.
 3. If inaccurate, replace with a verifiable alternative.
-4. Status: "verified", "corrected", or "flagged" (uncertain — needs human review).
+4. Status: "verified", "corrected", or "flagged" (uncertain, needs human review).
 
 IMPORTANT:
-- You MUST return EXACTLY the same number of slides as the input — never add or remove slides
-- Slide 1 title MUST remain EXACTLY as-is — do NOT change it
+- You MUST return EXACTLY the same number of slides as the input, never add or remove slides
+- Slide 1 title MUST remain EXACTLY as-is. Do NOT change it
 - Keep the same slide structure (title, body, footer, and claims if present)
 - Keep all text lowercase except ticker symbols and numbers
 - Keep every slide under 15 words for body text
@@ -752,12 +753,12 @@ def validate_conclusion(
     topic: str,
     angle: str,
 ) -> dict:
-    """Check that the verdict/takeaway logically follows from the evidence presented.
+    """Check that the verdict or takeaway logically follows from the evidence presented.
 
     Returns dict with:
         - "verdict_slide": which slide number is the verdict
         - "evidence_used": list of facts the verdict relies on
-        - "logic_valid": bool — does the conclusion follow?
+        - "logic_valid": bool, whether the conclusion follows
         - "issues": list of logic gaps or unsupported leaps
         - "corrected_slides": slides with verdict fixed if needed
     """
@@ -783,13 +784,13 @@ Check the following:
 6. CHECK: Is there evidence in the slides that the verdict ignores?
 
 If the conclusion has logic gaps:
-- Soften overconfident claims (e.g., "will" → "historically tends to")
+- Soften overconfident claims (e.g., change "will" to "historically tends to")
 - Add a qualifying fact if the verdict needs more support
 - Ensure the verdict references the strongest evidence presented
 
 RULES:
-- You MUST return EXACTLY {len(slides)} slides — same count as the input
-- Slide 1 title MUST remain EXACTLY as-is — do NOT change it
+- You MUST return EXACTLY {len(slides)} slides, same count as the input
+- Slide 1 title MUST remain EXACTLY as-is. Do NOT change it
 - Keep all text lowercase except tickers and numbers
 - Keep body under 15 words per slide
 - Maintain the claims tags if present
@@ -826,7 +827,7 @@ def check_narrative_coherence(
     angle: str,
     hook: str,
 ) -> dict:
-    """Ensure the story arc flows: news event → supporting context → insight → conclusion.
+    """Ensure the story arc flows: news event, supporting context, insight, conclusion.
 
     Returns dict with:
         - "arc_analysis": assessment of the narrative flow
@@ -846,36 +847,36 @@ SLIDES:
 Your job: Ensure the slide deck tells a COHERENT STORY with the correct narrative arc.
 
 CHECK EACH TRANSITION:
-1. HOOK (Slide 1) → RE-HOOK (Slide 2): Do they approach the same topic from complementary angles? Does the re-hook work as a standalone entry point?
-2. RE-HOOK → FIRST DATA SLIDE: Is the transition from hook to evidence smooth?
-3. DATA SLIDES (3 to N-2): Do they follow the arc: news event → supporting context → deeper insight → payoff?
+1. HOOK (Slide 1) to RE-HOOK (Slide 2): Do they approach the same topic from complementary angles? Does the re-hook work as a standalone entry point?
+2. RE-HOOK to FIRST DATA SLIDE: Is the transition from hook to evidence smooth?
+3. DATA SLIDES (3 to N-2): Do they follow the arc: news event, supporting context, deeper insight, payoff?
    - No two similar fact types should be adjacent (don't stack two comparisons or two trends)
    - Each slide should feel like it NEEDS to come after the previous one
-   - The tension should BUILD — start with context, escalate to the surprising/important data
-4. DATA → VERDICT: Does the last data point naturally set up the takeaway?
-5. VERDICT → CTA: Does the CTA feel earned by the story?
+   - The tension should BUILD. Start with context, escalate to the surprising or important data
+4. DATA to VERDICT: Does the last data point naturally set up the takeaway?
+5. VERDICT to CTA: Does the CTA feel earned by the story? Does it drive comments?
 
 ALSO CHECK:
 - Does every slide connect back to the hook's promise? (No tangential slides)
-- Is there a clear "so what?" moment — the point where context becomes insight?
+- Is there a clear "so what?" moment, the point where context becomes insight?
 - Would a reader feel satisfied at the end, or like something is missing?
 
 If the narrative has problems:
 - REORDER slides if the arc is wrong (e.g., the most surprising fact should build toward the end)
 - REWRITE transitions so each slide logically leads to the next
-- REPLACE a weak slide's content — but you MUST keep the same total number of slides
+- REPLACE a weak slide's content, but you MUST keep the same total number of slides
 - You MAY restructure the deck (change order, rewrite content) to improve cohesion
-- You MUST NOT change the total number of slides — always return the same count as the input
+- You MUST NOT change the total number of slides. Always return the same count as the input
 
 RULES:
-- You MUST return EXACTLY {len(slides)} slides — same count as the input
+- You MUST return EXACTLY {len(slides)} slides, same count as the input
 - Keep all text lowercase except tickers and numbers
 - Keep body under 15 words per slide
-- Data slides should have a number, %, or $ — but ONLY if verified. Use directional language if not.
+- Data slides should have a number, %, or $, but ONLY if verified. Use directional language if not.
 - Footer: short source attribution only, no hashtags, no emojis
-- Slide 1 title MUST remain the hook EXACTLY as written: "{hook}" — do NOT change it
+- Slide 1 title MUST remain the hook EXACTLY as written: "{hook}". Do NOT change it
 - NEVER introduce new numbers, prices, or statistics that aren't already in the slides.
-  You can reword, reorder, or replace content — but never add unverified data.
+  You can reword, reorder, or replace content, but never add unverified data.
 
 Return your response as JSON:
 {{
@@ -975,8 +976,8 @@ CORRECT the slide to match the current data.
 
 IMPORTANT:
 - Trust the search results over the slide content for current prices, levels, and percentages
-- You MUST return EXACTLY the same number of slides as the input — never add or remove slides
-- Slide 1 title MUST remain EXACTLY as-is — do NOT change it
+- You MUST return EXACTLY the same number of slides as the input, never add or remove slides
+- Slide 1 title MUST remain EXACTLY as-is. Do NOT change it
 - Keep the same slide structure (title, body, footer)
 - Keep all text lowercase except ticker symbols and numbers
 - Keep every slide under 15 words for body text
@@ -1039,7 +1040,7 @@ def enforce_hook_and_count(
         while len(slides) < expected_count:
             slides.insert(-1, {
                 "title": "more to consider",
-                "body": "(this slide needs content — edit in step 6)",
+                "body": "(this slide needs content, edit in step 6)",
                 "footer": "",
             })
     elif len(slides) > expected_count:
@@ -1078,10 +1079,11 @@ Generate a TikTok carousel post package:
 1. VIDEO TITLE: A scroll-stopping title for the carousel post. Should be punchy, include a number, and create curiosity. Max 60 characters.
 
 2. DESCRIPTION: A TikTok carousel description that:
-   - Summarises the value of the carousel in 1-2 sentences
+   - Summarises the value of the carousel in 1 to 2 sentences
    - Adds extra insight or context not in the slides (bonus value for readers)
-   - Includes relevant hashtags (5-8 hashtags)
-   - Ends with this exact disclaimer: "views are my own, not my employer's. educational content only — not financial advice."
+   - Includes a question that invites comments (e.g. "what's your take?" or "would you buy or sell?")
+   - Includes relevant hashtags (5 to 8 hashtags)
+   - Ends with this exact disclaimer: "views are my own, not my employer's. educational content only, not financial advice."
    - MUST be 200+ characters total (TikTok carousel SEO requirement)
 
 Return your response as JSON:

@@ -1,4 +1,4 @@
-"""Main orchestrator: research → generate → review → build slides."""
+"""Main orchestrator for the research, generation, review, and slide building pipeline."""
 
 import argparse
 import os
@@ -85,14 +85,14 @@ def run(config_path: str = "config.yaml") -> None:
         if len(research_facts) > 5:
             print(f"    ... and {len(research_facts) - 5} more")
     except Exception as exc:
-        print(f"  Facts extraction failed ({exc}) — continuing without grounding")
+        print(f"  Facts extraction failed ({exc}), continuing without grounding")
         research_facts = []
 
     # ── Step 2: Suggest topics ────────────────────────────────────────
     print("\nStep 2: Suggesting topics...")
     topic_options = suggest_topics(research_text, audience)
     for i, t in enumerate(topic_options, 1):
-        print(f"  {i}. {t['title']} — {t['description']}")
+        print(f"  {i}. {t['title']}: {t['description']}")
 
     # Auto-pick the first topic in CLI mode
     chosen_topic = topic_options[0]
@@ -191,19 +191,25 @@ def run(config_path: str = "config.yaml") -> None:
         print("  Conclusion corrected.")
     slides = conclusion_result.get("corrected_slides", slides)
 
-    # ── Layer 5: Narrative coherence ───────────────────────────────────
-    print("\nLayer 5: Checking narrative coherence...")
-    coherence_result = check_narrative_coherence(
-        slides, chosen_topic["title"], angle, chosen_hook["hook"],
-    )
-    score = coherence_result.get("coherence_score", "?")
-    print(f"  Coherence score: {score}/10")
-    arc = coherence_result.get("arc_analysis", "")
-    if arc:
-        print(f"  Arc: {arc}")
-    for issue in coherence_result.get("issues", []):
-        print(f"    Fixed: {issue}")
-    slides = coherence_result.get("corrected_slides", slides)
+    # ── Layer 5: Narrative coherence (2 iterations) ─────────────────────
+    max_coherence_rounds = 2
+    for coh_round in range(1, max_coherence_rounds + 1):
+        print(f"\nLayer 5: Checking narrative coherence (round {coh_round}/{max_coherence_rounds})...")
+        coherence_result = check_narrative_coherence(
+            slides, chosen_topic["title"], angle, chosen_hook["hook"],
+        )
+        score = coherence_result.get("coherence_score", "?")
+        print(f"  Coherence score: {score}/10")
+        arc = coherence_result.get("arc_analysis", "")
+        if arc:
+            print(f"  Arc: {arc}")
+        for issue in coherence_result.get("issues", []):
+            print(f"    Fixed: {issue}")
+        slides = coherence_result.get("corrected_slides", slides)
+        # Stop early if score is already high
+        if isinstance(score, (int, float)) and score >= 9:
+            print("  Coherence is strong, skipping further rounds.")
+            break
 
     # Strip claim tags for final output
     slides = strip_claim_tags(slides)

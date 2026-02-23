@@ -1,4 +1,4 @@
-"""Streamlit UI for the finance slide generator — guided 7-step workflow.
+"""Streamlit UI for the finance slide generator. Guided 7-step workflow.
 
 Flow:
   1. Research & Pick a Topic
@@ -46,7 +46,7 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-st.set_page_config(page_title="Posting — Finance Slides", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Posting: Finance Slides", page_icon="📊", layout="wide")
 
 st.title("Posting")
 st.caption("Generate trending finance slide decks for TikTok & Instagram")
@@ -205,7 +205,7 @@ if st.session_state.step > 1:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 — Research & Pick a Topic
+# STEP 1: Research & Pick a Topic
 # ══════════════════════════════════════════════════════════════════════════════
 
 if st.session_state.step == 1:
@@ -221,7 +221,7 @@ if st.session_state.step == 1:
             if "news" in sources:
                 news_items = fetch_news_topics(topics)
                 if news_items:
-                    st.toast(f"Found {len(news_items)} recent articles — fact-checking...")
+                    st.toast(f"Found {len(news_items)} recent articles, fact checking...")
 
                     raw_news = format_news_for_prompt(news_items)
                     try:
@@ -238,13 +238,13 @@ if st.session_state.step == 1:
 
                         if corrections:
                             st.toast(
-                                f"Corrected {len(corrections)} article(s) — "
+                                f"Corrected {len(corrections)} article(s), "
                                 f"all {len(news_items)} now factual"
                             )
                         else:
                             st.toast(f"All {len(news_items)} articles verified")
                     except Exception:
-                        st.toast("Fact-check unavailable — using articles as-is")
+                        st.toast("Fact check unavailable, using articles as is")
 
                     research_parts.append(format_news_for_prompt(news_items))
                 else:
@@ -271,7 +271,7 @@ if st.session_state.step == 1:
                 st.session_state.research_facts = research_facts
                 st.toast(f"Extracted {len(research_facts)} verifiable facts")
         except Exception:
-            st.toast("Facts extraction unavailable — continuing without grounding")
+            st.toast("Facts extraction unavailable, continuing without grounding")
             st.session_state.research_facts = []
 
         try:
@@ -289,7 +289,7 @@ if st.session_state.step == 1:
 
     if st.session_state.topic_options:
         topic_options = st.session_state.topic_options
-        labels = [f"{t['title']} — {t['description']}" for t in topic_options]
+        labels = [f"{t['title']}: {t['description']}" for t in topic_options]
 
         selected_idx = st.selectbox(
             "Select a topic for your deck",
@@ -304,7 +304,7 @@ if st.session_state.step == 1:
             st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Consolidate Data (20+ verified bullet points)
+# STEP 2: Consolidate Data (20+ verified bullet points)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 2:
@@ -339,12 +339,12 @@ elif st.session_state.step == 2:
     if high_conf:
         st.subheader(f"High confidence ({len(high_conf)})")
         for b in high_conf:
-            st.markdown(f"- **{b['bullet']}** — _source: {b.get('source', 'unknown')}_")
+            st.markdown(f"- **{b['bullet']}** , _source: {b.get('source', 'unknown')}_")
 
     if med_conf:
         st.subheader(f"Medium confidence ({len(med_conf)})")
         for b in med_conf:
-            st.markdown(f"- {b['bullet']} — _source: {b.get('source', 'unknown')}_")
+            st.markdown(f"- {b['bullet']} , _source: {b.get('source', 'unknown')}_")
 
     col_back, col_next = st.columns(2)
     if col_back.button("Back"):
@@ -357,7 +357,7 @@ elif st.session_state.step == 2:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 — Choose a Hook (grounded in verified data)
+# STEP 3: Choose a Hook (grounded in verified data)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 3:
@@ -415,7 +415,7 @@ elif st.session_state.step == 3:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 — Provide Angle & Additional Data
+# STEP 4: Provide Angle & Additional Data
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 4:
@@ -436,7 +436,7 @@ elif st.session_state.step == 4:
 
     with tab_angle:
         st.write(
-            "Describe your angle — we'll research it, verify all data is factual, "
+            "Describe your angle and we'll research it, verify all data is factual, "
             "and ensure at least 20 verified bullet points before building slides."
         )
         angle = st.text_area(
@@ -467,12 +467,12 @@ elif st.session_state.step == 4:
                         st.toast("No additional data found from angle search")
                 except Exception as e:
                     combined = bullets
-                    st.toast(f"Angle research failed: {e} — using existing data")
+                    st.toast(f"Angle research failed: {e}, using existing data")
 
             # Step B: If under 20 bullets, do a second round of consolidation
             if len(combined) < 20:
                 with st.spinner(
-                    f"Only {len(combined)} data points — researching more to reach 20+..."
+                    f"Only {len(combined)} data points, researching more to reach 20+..."
                 ):
                     try:
                         extra_bullets = consolidate_topic_data(
@@ -483,7 +483,7 @@ elif st.session_state.step == 4:
                             ],
                             topic={
                                 "title": topic["title"],
-                                "description": f"{topic['description']} — angle: {angle.strip()}",
+                                "description": f"{topic['description']}, angle: {angle.strip()}",
                             },
                             audience=audience,
                         )
@@ -536,7 +536,7 @@ elif st.session_state.step == 4:
 
     if bullet_count < 20:
         st.warning(
-            f"Only {bullet_count} data points — at least 20 recommended. "
+            f"Only {bullet_count} data points, at least 20 recommended. "
             "Research an angle or add your own data above."
         )
     else:
@@ -547,7 +547,7 @@ elif st.session_state.step == 4:
             src = b.get("source", "unknown")
             conf = b.get("confidence", "medium")
             icon = "**" if conf == "high" else ""
-            st.markdown(f"- {icon}{b['bullet']}{icon} — _{src}_")
+            st.markdown(f"- {icon}{b['bullet']}{icon}, _{src}_")
 
     col_back, col_next = st.columns(2)
     if col_back.button("Back"):
@@ -571,7 +571,7 @@ elif st.session_state.step == 4:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 5 — Generate & Verify Slides (consolidated checks)
+# STEP 5: Generate & Verify Slides (consolidated checks)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 5:
@@ -677,7 +677,7 @@ elif st.session_state.step == 5:
                             "notes": f"[web search] {item.get('notes', '')}",
                         })
                 except Exception:
-                    st.toast("Web search verification unavailable — continuing")
+                    st.toast("Web search verification unavailable, continuing")
 
             st.session_state.fact_check_report = fact_report
 
@@ -695,18 +695,26 @@ elif st.session_state.step == 5:
                 slides = conclusion_result.get("corrected_slides", slides)
                 slides = enforce_hook_and_count(slides, hook_text, slide_count)
 
-            # Narrative coherence
-            with st.spinner("Ensuring story cohesion..."):
-                progress.progress(75, text="Checking narrative coherence...")
-                coherence_result = check_narrative_coherence(
-                    slides, topic["title"],
-                    angle or topic["description"], hook_text,
-                )
-                st.session_state.coherence_report = coherence_result
-                coherence_score = coherence_result.get("coherence_score", 0)
-                st.toast(f"Narrative coherence: {coherence_score}/10")
-                slides = coherence_result.get("corrected_slides", slides)
-                slides = enforce_hook_and_count(slides, hook_text, slide_count)
+            # Narrative coherence (2 iterations for stronger cohesion)
+            max_coherence_rounds = 2
+            for coh_round in range(1, max_coherence_rounds + 1):
+                with st.spinner(f"Ensuring story cohesion (round {coh_round}/{max_coherence_rounds})..."):
+                    progress.progress(
+                        70 + (coh_round * 5),
+                        text=f"Checking narrative coherence (round {coh_round})...",
+                    )
+                    coherence_result = check_narrative_coherence(
+                        slides, topic["title"],
+                        angle or topic["description"], hook_text,
+                    )
+                    st.session_state.coherence_report = coherence_result
+                    coherence_score = coherence_result.get("coherence_score", 0)
+                    st.toast(f"Narrative coherence (round {coh_round}): {coherence_score}/10")
+                    slides = coherence_result.get("corrected_slides", slides)
+                    slides = enforce_hook_and_count(slides, hook_text, slide_count)
+                    # Stop early if score is already high
+                    if isinstance(coherence_score, (int, float)) and coherence_score >= 9:
+                        break
 
             # Strip claim tags
             slides = strip_claim_tags(slides)
@@ -747,7 +755,7 @@ elif st.session_state.step == 5:
             st.stop()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 6 — Edit Slides (inline editing)
+# STEP 6: Edit Slides (inline editing)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 6:
@@ -755,7 +763,7 @@ elif st.session_state.step == 6:
     slides = st.session_state.slides
     fact_report = st.session_state.fact_check_report
 
-    st.success(f"Generated {len(slides)} slides — edit below, then export.")
+    st.success(f"Generated {len(slides)} slides. Edit below, then export.")
 
     # ── Fact-Check Report ──────────────────────────────────────────────────
     if fact_report:
@@ -765,11 +773,11 @@ elif st.session_state.step == 6:
                 status = item.get("status", "unknown")
                 notes = item.get("notes", "")
                 if status == "verified":
-                    st.markdown(f"**Slide {slide_num}** — :green[verified]  \n{notes}")
+                    st.markdown(f"**Slide {slide_num}**: :green[verified]  \n{notes}")
                 elif status == "corrected":
-                    st.markdown(f"**Slide {slide_num}** — :orange[corrected]  \n{notes}")
+                    st.markdown(f"**Slide {slide_num}**: :orange[corrected]  \n{notes}")
                 else:
-                    st.markdown(f"**Slide {slide_num}** — :red[flagged]  \n{notes}")
+                    st.markdown(f"**Slide {slide_num}**: :red[flagged]  \n{notes}")
 
     # ── Conclusion Report ──────────────────────────────────────────────────
     conclusion_report = st.session_state.conclusion_report
@@ -780,7 +788,7 @@ elif st.session_state.step == 6:
             if logic_valid:
                 st.markdown(f":green[Verdict (Slide {verdict_slide}) logically follows from evidence]")
             else:
-                st.markdown(f":orange[Verdict (Slide {verdict_slide}) had logic gaps — corrected]")
+                st.markdown(f":orange[Verdict (Slide {verdict_slide}) had logic gaps, corrected]")
             issues = conclusion_report.get("issues", [])
             if issues:
                 for issue in issues:
@@ -838,11 +846,11 @@ elif st.session_state.step == 6:
             char_count = len(body)
             bar_value = min(char_count / BODY_MAX, 1.0)
             if char_count < BODY_MIN:
-                label = f":red[{char_count} chars — too short]"
+                label = f":red[{char_count} chars, too short]"
             elif char_count <= BODY_MAX:
                 label = f":green[{char_count} chars]"
             else:
-                label = f":red[{char_count} chars — too long]"
+                label = f":red[{char_count} chars, too long]"
             st.progress(bar_value)
             st.caption(label)
 
@@ -885,7 +893,7 @@ elif st.session_state.step == 6:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 7 — Export & Visualize (on-demand)
+# STEP 7: Export & Visualize (on demand)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 7:

@@ -20,7 +20,7 @@ def review_and_improve(
         tone: Desired tone.
         audience: Target audience description.
         iterations: Number of review/improve cycles to run.
-        hook: The opening hook text — slides must deliver on this promise.
+        hook: The opening hook text. Slides must deliver on this promise.
 
     Returns:
         The final improved list of slide dicts.
@@ -60,25 +60,25 @@ Please do the following:
 
 3. PRODUCE an improved version of ALL slides. For each slide:
    - Make titles punchier and more curiosity-driven
-   - Tighten body text — remove filler words
+   - Tighten body text, remove filler words
    - Ensure the first slide is the strongest hook
    - Add urgency or FOMO where appropriate (without being clickbait)
    - Make sure data points are highlighted
-   - Ensure slides tell a cohesive STORY — each slide must logically lead to the next
-   - Data slides should build: context → tension → insight → payoff
+   - Ensure slides tell a cohesive STORY where each slide logically leads to the next
+   - Data slides should build: context, then tension, then insight, then payoff
    - You MAY reorder or rewrite slides to improve flow, but MUST return the same number of slides
-   - Footer: short source attribution only (e.g. "source: bloomberg"). NO hashtags, NO emojis
-   - You MUST return EXACTLY {len(current_slides)} slides — same count as the input
-   - Slide 1 title MUST remain the hook EXACTLY as written — do NOT rephrase it
+   - Footer: short source attribution only (e.g. "source: Bloomberg"). NO hashtags, NO emojis
+   - You MUST return EXACTLY {len(current_slides)} slides, same count as the input
+   - Slide 1 title MUST remain the hook EXACTLY as written. Do NOT rephrase it
 
-FACTUAL INTEGRITY (critical — overrides engagement goals):
+FACTUAL INTEGRITY (critical, overrides engagement goals):
    - NEVER change, replace, or introduce specific numbers, prices, percentages, or dollar amounts.
      Your training data may be outdated. Only use the numbers already present in the slides.
    - NEVER add a new statistic or data point that isn't already in the slides.
    - If a slide has a vague claim (e.g. "rising sharply"), do NOT replace it with a specific number.
    - You may improve WORDING and STRUCTURE but must preserve the FACTUAL CONTENT exactly.
    - If a slide feels weak because it lacks a specific number, improve it through better
-     storytelling and framing — not by inventing data.
+     storytelling and framing, not by inventing data.
 
 Return your response as JSON with this structure:
 {{
@@ -87,7 +87,7 @@ Return your response as JSON with this structure:
       {{"slide": 1, "hook": 8, "clarity": 7, "engagement": 6, "balance": 8, "notes": "..."}},
       ...
     ],
-    "weakest": "Slide 3 — the body text is too vague...",
+    "weakest": "Slide 3: the body text is too vague...",
     "overall_score": 7.2
   }},
   "improved_slides": [
@@ -125,7 +125,7 @@ Return ONLY the JSON, no other text."""
                     + score.get("engagement", 0)
                     + score.get("balance", 0)
                 ) / 4
-                print(f"    Slide {slide_num}: avg {avg:.1f} — {score.get('notes', '')}")
+                print(f"    Slide {slide_num}: avg {avg:.1f}, {score.get('notes', '')}")
 
         if "weakest" in review:
             print(f"  [review] Weakest: {review['weakest'][:100]}")

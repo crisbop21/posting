@@ -7,7 +7,7 @@ where the default encoding is not UTF-8.
 
 import unicodedata
 
-# Common Unicode → ASCII replacements
+# Common Unicode to ASCII replacements
 _REPLACEMENTS = {
     "\u2018": "'",   # left single quote
     "\u2019": "'",   # right single quote
@@ -44,7 +44,7 @@ def sanitize_text(text: str) -> str:
     for orig, repl in _REPLACEMENTS.items():
         text = text.replace(orig, repl)
 
-    # NFKD normalize: decomposes é → e + combining accent, then we strip accents
+    # NFKD normalize: decomposes accented characters (e.g. e with accent), then we strip accents
     text = unicodedata.normalize("NFKD", text)
 
     # Encode to ASCII, ignoring characters that still can't be represented

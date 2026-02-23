@@ -1,10 +1,10 @@
-# posting
+# Posting
 
-Daily finance research and slide generation for TikTok/Instagram.
+Daily finance research and slide generation for TikTok and Instagram.
 
 Automatically researches trending finance topics from news feeds and Reddit,
 generates engaging slide content using Claude, iterates on engagement quality,
-and outputs a ready-to-post PPTX deck.
+and outputs a ready to post PPTX deck.
 
 ## Setup
 
@@ -19,7 +19,7 @@ cp .env.example .env
 ```
 
 **Required:** `ANTHROPIC_API_KEY`
-**Optional:** `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (for Reddit source)
+**Optional:** `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (for the Reddit source)
 
 ## Usage
 
@@ -35,14 +35,14 @@ python -m src.main -c my_config.yaml
 
 Edit `config.yaml` to customize:
 
-- **slides** — count, tone, audience, colors, aspect ratio
-- **research** — sources (news/reddit), topics, subreddits
-- **content** — number of review iterations, style notes
-- **output** — output directory
+- **slides**: count, tone, audience, colors, aspect ratio
+- **research**: sources (news, Reddit), topics, subreddits
+- **content**: number of review iterations, style notes
+- **output**: output directory
 
-## How it works
+## How It Works
 
-1. **Research** — Fetches trending finance topics from Google News RSS feeds and Reddit hot posts
-2. **Generate** — Claude synthesizes the research into structured slide content
-3. **Review** — Claude scores each slide on hook power, clarity, engagement, and visual balance, then produces an improved version. This repeats for N iterations
-4. **Build** — Generates a styled PPTX file ready to screenshot or export for posting
+1. **Research**: fetches trending finance topics from Google News RSS feeds and Reddit hot posts
+2. **Generate**: Claude combines the research into structured slide content
+3. **Review**: Claude scores each slide on hook power, clarity, engagement, and visual balance, then produces an improved version. This repeats for the configured number of iterations
+4. **Build**: generates a styled PPTX file ready to screenshot or export for posting
