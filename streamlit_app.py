@@ -1132,41 +1132,43 @@ elif st.session_state.step == 7:
     elif canva_enabled:
         st.caption("Connect your Canva account in the sidebar to enable Canva export.")
 
-    # Generate alternative versions via Canva MCP
-    if has_canva:
-        st.divider()
-        st.subheader("Alternative Versions (Canva MCP)")
-        st.caption(
-            "Generate multiple design variations via the Canva MCP server. "
-            "Each alternative uses a different visual style so you can compare and pick the best one."
-        )
-        mcp_cols = st.columns([2, 1])
-        num_alts = mcp_cols[1].selectbox(
-            "Number of alternatives",
-            [2, 3, 4],
-            index=0,
-            key="mcp_num_alts",
-        )
-        if mcp_cols[0].button(
-            "Generate Alternative Versions",
-            type="primary",
-            use_container_width=True,
-            key="mcp_generate_btn",
+    # Generate alternative versions via Canva MCP (no API keys needed)
+    st.divider()
+    st.subheader("Alternative Versions (Canva MCP)")
+    st.caption(
+        "Generate multiple design variations via the Canva MCP server. "
+        "Each alternative uses a different visual style so you can compare and pick the best one. "
+        "No API keys needed — you'll be prompted to log in to Canva in your browser on first use."
+    )
+    mcp_cols = st.columns([2, 1])
+    num_alts = mcp_cols[1].selectbox(
+        "Number of alternatives",
+        [2, 3, 4],
+        index=0,
+        key="mcp_num_alts",
+    )
+    if mcp_cols[0].button(
+        "Generate Alternative Versions",
+        type="primary",
+        use_container_width=True,
+        key="mcp_generate_btn",
+    ):
+        with st.spinner(
+            "Connecting to Canva MCP and generating designs... "
+            "If this is your first time, a browser window will open for Canva login."
         ):
-            with st.spinner("Creating alternative designs via Canva MCP..."):
-                try:
-                    alts = generate_alternative_slides(
-                        slides=slides,
-                        access_token=st.session_state["canva_access_token"],
-                        topic=st.session_state.selected_topic["title"],
-                        aspect_ratio=aspect_ratio_val,
-                        colors=colors,
-                        num_alternatives=num_alts,
-                    )
-                    st.session_state.mcp_alternatives = alts
-                except Exception as exc:
-                    st.error(f"MCP alternative generation failed: {exc}")
-            st.rerun()
+            try:
+                alts = generate_alternative_slides(
+                    slides=slides,
+                    topic=st.session_state.selected_topic["title"],
+                    aspect_ratio=aspect_ratio_val,
+                    colors=colors,
+                    num_alternatives=num_alts,
+                )
+                st.session_state.mcp_alternatives = alts
+            except Exception as exc:
+                st.error(f"MCP alternative generation failed: {exc}")
+        st.rerun()
 
     # ── Download Buttons ───────────────────────────────────────────────────
     filepath = st.session_state.pptx_path
