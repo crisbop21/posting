@@ -49,10 +49,27 @@ class CanvaMcpClient:
             bufsize=1,  # line-buffered
         )
 
+        self._stderr_lines: list[str] = []
+
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
+        self._err_reader = threading.Thread(target=self._read_stderr, daemon=True)
+        self._err_reader.start()
 
     # ── Protocol I/O ──────────────────────────────────────────────────────
+
+    def _read_stderr(self) -> None:
+        """Capture mcp-remote stderr for debugging."""
+        assert self._proc.stderr is not None
+        for raw_line in self._proc.stderr:
+            line = raw_line.strip()
+            if line:
+                self._stderr_lines.append(line)
+                logger.debug("mcp-remote stderr: %s", line)
+
+    def get_stderr(self) -> str:
+        """Return all captured stderr output."""
+        return "\n".join(self._stderr_lines)
 
     def _read_loop(self) -> None:
         """Read JSON-RPC messages from stdout in a background thread."""
@@ -292,11 +309,27 @@ def generate_alternative_slides(
 
     alternatives: list[dict] = []
 
-    with CanvaMcpClient() as client:
+    client = CanvaMcpClient()
+    try:
+        client.initialize()
+
         # Discover available tools
         tools = client.list_tools()
         tool_names = [t.get("name", "") for t in tools]
         logger.info("Canva MCP tools available: %s", tool_names)
+
+        if not tool_names:
+            return [{
+                "version": "Error",
+                "style": "",
+                "design_id": "",
+                "edit_url": "",
+                "export_url": "",
+                "error": (
+                    "MCP connected but no tools found. Check your Canva login.\n"
+                    f"stderr: {client.get_stderr()}"
+                ),
+            }]
 
         for variation in style_variations[:num_alternatives]:
             try:
@@ -309,6 +342,7 @@ def generate_alternative_slides(
                 alternatives.append({
                     "version": variation["label"],
                     "style": variation["style"],
+                    "tools_available": tool_names,
                     **alt,
                 })
             except Exception as exc:
@@ -320,9 +354,36 @@ def generate_alternative_slides(
                     "edit_url": "",
                     "export_url": "",
                     "error": str(exc),
+                    "tools_available": tool_names,
                 })
+    except Exception as exc:
+        stderr = client.get_stderr()
+        raise RuntimeError(
+            f"Canva MCP connection failed: {exc}\nmcp-remote output: {stderr}"
+        ) from exc
+    finally:
+        client.close()
 
     return alternatives
+
+
+def _find_urls_recursive(obj: Any, urls: dict[str, str] | None = None) -> dict[str, str]:
+    """Walk a nested dict/list and collect anything that looks like a URL or ID."""
+    if urls is None:
+        urls = {}
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str):
+                if "url" in k.lower() or "link" in k.lower():
+                    urls[k] = v
+                elif k.lower() in ("id", "design_id"):
+                    urls[k] = v
+            else:
+                _find_urls_recursive(v, urls)
+    elif isinstance(obj, list):
+        for item in obj:
+            _find_urls_recursive(item, urls)
+    return urls
 
 
 def _create_one_alternative(
@@ -337,18 +398,37 @@ def _create_one_alternative(
         "title": title,
         "description": prompt,
     })
+    logger.info("create_design raw result: %s", json.dumps(create_result)[:500])
+
     parsed = _parse_json_content(create_result)
 
+    # Try to extract URLs and IDs from the response, regardless of structure
     design_id = ""
     edit_url = ""
+
     if isinstance(parsed, dict):
-        design_id = parsed.get("id", parsed.get("design_id", ""))
+        # Direct field access
+        design_id = (
+            parsed.get("id", "")
+            or parsed.get("design_id", "")
+            or parsed.get("designId", "")
+        )
         edit_url = (
             parsed.get("edit_url", "")
+            or parsed.get("editUrl", "")
+            or parsed.get("url", "")
             or parsed.get("urls", {}).get("edit_url", "")
+            or parsed.get("urls", {}).get("editUrl", "")
         )
-    elif isinstance(parsed, str) and parsed.startswith("http"):
-        edit_url = parsed
+        # Recursive search as last resort
+        if not edit_url:
+            found = _find_urls_recursive(parsed)
+            edit_url = found.get("edit_url", found.get("editUrl", found.get("url", "")))
+            if not design_id:
+                design_id = found.get("id", found.get("design_id", ""))
+    elif isinstance(parsed, str):
+        if parsed.startswith("http"):
+            edit_url = parsed
 
     # Try to export as PNG
     export_url = ""
@@ -360,7 +440,17 @@ def _create_one_alternative(
             })
             export_parsed = _parse_json_content(export_result)
             if isinstance(export_parsed, dict):
-                export_url = export_parsed.get("url", export_parsed.get("download_url", ""))
+                export_url = (
+                    export_parsed.get("url", "")
+                    or export_parsed.get("download_url", "")
+                    or export_parsed.get("downloadUrl", "")
+                )
+                if not export_url:
+                    found = _find_urls_recursive(export_parsed)
+                    export_url = next(
+                        (v for v in found.values() if isinstance(v, str) and v.startswith("http")),
+                        "",
+                    )
             elif isinstance(export_parsed, str) and export_parsed.startswith("http"):
                 export_url = export_parsed
         except Exception as exc:
@@ -370,4 +460,5 @@ def _create_one_alternative(
         "design_id": design_id,
         "edit_url": edit_url,
         "export_url": export_url,
+        "raw_response": _extract_text_content(create_result) or str(create_result),
     }
