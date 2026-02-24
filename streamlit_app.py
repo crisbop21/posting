@@ -1263,23 +1263,26 @@ elif st.session_state.step == 7:
                 st.markdown(f"**{alt['version']}**")
                 st.caption(f"Style: {alt['style']}")
                 if alt.get("error"):
-                    st.error(f"Failed: {alt['error']}")
-                else:
-                    if alt.get("edit_url"):
-                        st.link_button(
-                            "Edit in Canva",
-                            alt["edit_url"],
-                            type="primary",
-                            use_container_width=True,
-                        )
+                    st.error(alt["error"])
+                elif alt.get("edit_url"):
+                    st.link_button(
+                        "Edit in Canva",
+                        alt["edit_url"],
+                        type="primary",
+                        use_container_width=True,
+                    )
                     if alt.get("export_url"):
                         st.link_button(
                             "Download PNG",
                             alt["export_url"],
                             use_container_width=True,
                         )
-                    if not alt.get("edit_url") and not alt.get("export_url"):
-                        st.warning("Created but no URLs returned.")
+                    if alt.get("design_id"):
+                        st.caption(f"Design ID: `{alt['design_id']}`")
+                else:
+                    # Show raw response for debugging
+                    st.warning("No edit URL returned.")
+                    st.json(alt)
         st.caption(
             "Each alternative uses a different visual style. "
             "Open in Canva to further customize, or compare side-by-side."
