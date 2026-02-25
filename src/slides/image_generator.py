@@ -1,13 +1,16 @@
-"""Generate AI images for slides using Flux via Replicate.
+"""Generate AI images for slides using Google Imagen 3 or OpenAI DALL-E 3.
 
-Uses Flux Schnell (fast, ~2-4s per image) for slide background images.
+Supports two providers (auto-detected from environment variables):
+  - Google Imagen 3: Free tier ~50 images/day via Google AI Studio API key.
+  - OpenAI DALL-E 3: Paid, requires OpenAI API key.
+
 Each slide gets a cinematic, finance-themed image generated from its content.
 The image is then composited with slide text overlay to create the final frame.
 """
 
+import base64
 import io
 import os
-import tempfile
 from pathlib import Path
 
 import requests
@@ -21,89 +24,148 @@ from src.slides.png_builder import (
 )
 
 
-# ── Replicate API ─────────────────────────────────────────────────────────────
+# ── Provider Detection ────────────────────────────────────────────────────────
 
 
-def _get_replicate_token() -> str:
-    token = os.environ.get("REPLICATE_API_TOKEN", "")
-    if not token:
+def _get_provider_and_key() -> tuple[str, str]:
+    """Determine image provider and API key from environment variables."""
+    google_key = os.environ.get("GOOGLE_AI_API_KEY", "")
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+
+    if google_key:
+        return "google", google_key
+    if openai_key:
+        return "openai", openai_key
+    raise RuntimeError(
+        "No image generation API key found. Set one of:\n"
+        "  GOOGLE_AI_API_KEY — free at https://aistudio.google.com/apikey\n"
+        "  OPENAI_API_KEY   — paid at https://platform.openai.com/api-keys"
+    )
+
+
+# ── Google Imagen 3 ──────────────────────────────────────────────────────────
+
+
+def _generate_imagen(prompt: str, aspect: str, api_key: str) -> bytes:
+    """Generate an image using Google Imagen 3 via the Gemini API.
+
+    Free tier available with a Google AI Studio API key (~50 images/day).
+    Returns raw PNG bytes.
+    """
+    url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict"
+
+    resp = requests.post(
+        url,
+        params={"key": api_key},
+        headers={"Content-Type": "application/json"},
+        json={
+            "instances": [{"prompt": prompt}],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": aspect,
+            },
+        },
+        timeout=90,
+    )
+
+    if resp.status_code == 400:
+        error_msg = resp.json().get("error", {}).get("message", resp.text)
         raise RuntimeError(
-            "REPLICATE_API_TOKEN environment variable is not set. "
-            "Get your token at https://replicate.com/account/api-tokens"
+            f"Imagen rejected the prompt (safety filter or invalid request): {error_msg}"
         )
-    return token
+    resp.raise_for_status()
+
+    result = resp.json()
+    predictions = result.get("predictions", [])
+    if not predictions:
+        raise RuntimeError(
+            "Imagen returned no predictions. The prompt may have been filtered."
+        )
+
+    image_b64 = predictions[0].get("bytesBase64Encoded", "")
+    if not image_b64:
+        raise RuntimeError(
+            "Imagen prediction succeeded but contained no image data."
+        )
+
+    return base64.b64decode(image_b64)
+
+
+# ── OpenAI DALL-E 3 ──────────────────────────────────────────────────────────
+
+
+def _generate_dalle(prompt: str, width: int, height: int, api_key: str) -> bytes:
+    """Generate an image using OpenAI DALL-E 3.
+
+    Returns raw PNG bytes.
+    """
+    # DALL-E 3 supported sizes
+    if width < height:
+        size = "1024x1792"  # Portrait / stories
+    elif width > height:
+        size = "1792x1024"  # Landscape
+    else:
+        size = "1024x1024"  # Square
+
+    resp = requests.post(
+        "https://api.openai.com/v1/images/generations",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "dall-e-3",
+            "prompt": prompt,
+            "n": 1,
+            "size": size,
+            "quality": "standard",
+            "response_format": "b64_json",
+        },
+        timeout=90,
+    )
+    resp.raise_for_status()
+
+    result = resp.json()
+    data = result.get("data", [])
+    if not data:
+        raise RuntimeError("DALL-E returned no image data.")
+
+    image_b64 = data[0].get("b64_json", "")
+    if not image_b64:
+        raise RuntimeError("DALL-E response missing image data.")
+
+    return base64.b64decode(image_b64)
+
+
+# ── Unified API ──────────────────────────────────────────────────────────────
 
 
 def generate_image(
     prompt: str,
     width: int = 1080,
     height: int = 1920,
-    model: str = "black-forest-labs/flux-schnell",
+    model: str = "",
 ) -> bytes:
-    """Generate an image using Flux via Replicate API.
+    """Generate an image using the configured provider.
 
-    Uses raw HTTP requests to avoid requiring the replicate package.
+    Auto-detects provider from environment variables:
+      - GOOGLE_AI_API_KEY → Google Imagen 3 (free)
+      - OPENAI_API_KEY    → OpenAI DALL-E 3 (paid)
 
-    Returns raw image bytes (WebP/PNG).
+    Returns raw image bytes (PNG).
     """
-    token = _get_replicate_token()
+    provider, api_key = _get_provider_and_key()
 
-    # Create a prediction
-    resp = requests.post(
-        "https://api.replicate.com/v1/models/{}/predictions".format(model),
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "input": {
-                "prompt": prompt,
-                "num_outputs": 1,
-                "aspect_ratio": f"{width}:{height}",
-                "output_format": "png",
-                "output_quality": 90,
-            }
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    prediction = resp.json()
-
-    # Poll for completion
-    poll_url = prediction.get("urls", {}).get("get", "")
-    if not poll_url:
-        poll_url = f"https://api.replicate.com/v1/predictions/{prediction['id']}"
-
-    import time
-
-    for _ in range(60):  # max 60 polls × 2s = 2 minutes
-        poll_resp = requests.get(
-            poll_url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
-        )
-        poll_resp.raise_for_status()
-        result = poll_resp.json()
-
-        status = result.get("status", "")
-        if status == "succeeded":
-            output = result.get("output", [])
-            if output:
-                # Download the image
-                img_url = output[0] if isinstance(output, list) else output
-                img_resp = requests.get(img_url, timeout=60)
-                img_resp.raise_for_status()
-                return img_resp.content
-            raise RuntimeError("Flux prediction succeeded but returned no output")
-        elif status == "failed":
-            error = result.get("error", "Unknown error")
-            raise RuntimeError(f"Flux image generation failed: {error}")
-        elif status == "canceled":
-            raise RuntimeError("Flux image generation was canceled")
-
-        time.sleep(2)
-
-    raise RuntimeError("Flux image generation timed out after 2 minutes")
+    if provider == "google":
+        if width < height:
+            aspect = "9:16"
+        elif width > height:
+            aspect = "16:9"
+        else:
+            aspect = "1:1"
+        return _generate_imagen(prompt, aspect, api_key)
+    else:
+        return _generate_dalle(prompt, width, height, api_key)
 
 
 # ── Slide Image Compositing ──────────────────────────────────────────────────
