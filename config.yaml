@@ -52,6 +52,18 @@ canva:
   client_id: ""
   client_secret: ""
 
+# Video generation (optional, requires ElevenLabs API key)
+video:
+  # ElevenLabs voice ID (default: "Adam" — deep, clear male voice)
+  # Run `python -c "from src.slides.video_builder import list_voices; print(list_voices())"` to see options
+  voice_id: "pNInz6obpgDQGcFmaJgB"
+  # Crossfade duration between slides (seconds)
+  crossfade: 0.3
+  # Minimum time a slide is shown (seconds)
+  min_duration: 4.0
+  # Extra silence after voiceover ends per slide (seconds)
+  padding: 0.8
+
 # Output
 output:
   directory: "./output"
