@@ -1,7 +1,7 @@
-"""Generate AI images for slides using Google Imagen 3 or OpenAI DALL-E 3.
+"""Generate AI images for slides using Google Imagen 4 or OpenAI DALL-E 3.
 
 Supports two providers (auto-detected from environment variables):
-  - Google Imagen 3: Free tier ~50 images/day via Google AI Studio API key.
+  - Google Imagen 4: Free tier via Google AI Studio API key.
   - OpenAI DALL-E 3: Paid, requires OpenAI API key.
 
 Each slide gets a cinematic, finance-themed image generated from its content.
@@ -43,21 +43,23 @@ def _get_provider_and_key() -> tuple[str, str]:
     )
 
 
-# ── Google Imagen 3 ──────────────────────────────────────────────────────────
+# ── Google Imagen 4 ──────────────────────────────────────────────────────────
 
 
 def _generate_imagen(prompt: str, aspect: str, api_key: str) -> bytes:
-    """Generate an image using Google Imagen 3 via the Gemini API.
+    """Generate an image using Google Imagen 4 via the Gemini API.
 
-    Free tier available with a Google AI Studio API key (~50 images/day).
+    Free tier available with a Google AI Studio API key.
     Returns raw PNG bytes.
     """
-    url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
 
     resp = requests.post(
         url,
-        params={"key": api_key},
-        headers={"Content-Type": "application/json"},
+        headers={
+            "x-goog-api-key": api_key,
+            "Content-Type": "application/json",
+        },
         json={
             "instances": [{"prompt": prompt}],
             "parameters": {
@@ -149,7 +151,7 @@ def generate_image(
     """Generate an image using the configured provider.
 
     Auto-detects provider from environment variables:
-      - GOOGLE_AI_API_KEY → Google Imagen 3 (free)
+      - GOOGLE_AI_API_KEY → Google Imagen 4 (free)
       - OPENAI_API_KEY    → OpenAI DALL-E 3 (paid)
 
     Returns raw image bytes (PNG).
