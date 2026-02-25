@@ -60,7 +60,7 @@ def load_config(path: str = "config.yaml") -> dict:
 st.set_page_config(page_title="Posting: Finance Slides", page_icon="📊", layout="wide")
 
 st.title("Posting")
-st.caption("Generate trending finance slide decks for TikTok & Instagram")
+st.caption("Generate trending finance slide decks for TikTok & Instagram · v2.1-imagen4")
 
 # ── Sidebar: Settings (collapsible groups) ────────────────────────────────────
 
@@ -1639,9 +1639,12 @@ elif st.session_state.step == 6:
                         )
                         st.session_state.ai_image_paths = ai_paths
                         st.session_state.ai_image_prompts = image_prompts
+                        st.rerun()
                     except Exception as exc:
                         st.error(f"AI image generation failed: {exc}")
-                st.rerun()
+                        import traceback
+                        with st.expander("Full error details"):
+                            st.code(traceback.format_exc())
 
             if st.session_state.ai_image_paths:
                 ai_img_cols = st.columns(min(len(st.session_state.ai_image_paths), 3))
