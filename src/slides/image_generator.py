@@ -116,6 +116,7 @@ def _generate_gemini(prompt: str, api_key: str) -> bytes:
 def _generate_dalle(prompt: str, width: int, height: int, api_key: str) -> bytes:
     """Generate an image using OpenAI DALL-E 3.
 
+    Retries on 429 rate limits with exponential backoff (up to 3 retries).
     Returns raw PNG bytes.
     """
     # DALL-E 3 supported sizes
@@ -126,23 +127,47 @@ def _generate_dalle(prompt: str, width: int, height: int, api_key: str) -> bytes
     else:
         size = "1024x1024"  # Square
 
-    resp = requests.post(
-        "https://api.openai.com/v1/images/generations",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": "dall-e-3",
-            "prompt": prompt,
-            "n": 1,
-            "size": size,
-            "quality": "standard",
-            "response_format": "b64_json",
-        },
-        timeout=90,
-    )
-    resp.raise_for_status()
+    # DALL-E 3 has a 4000-character prompt limit
+    if len(prompt) > 4000:
+        prompt = prompt[:4000]
+
+    max_retries = 3
+
+    for attempt in range(max_retries + 1):
+        resp = requests.post(
+            "https://api.openai.com/v1/images/generations",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "dall-e-3",
+                "prompt": prompt,
+                "n": 1,
+                "size": size,
+                "quality": "standard",
+                "response_format": "b64_json",
+            },
+            timeout=90,
+        )
+
+        if resp.status_code == 429 and attempt < max_retries:
+            wait = 2 ** (attempt + 1)  # 2s, 4s, 8s
+            time.sleep(wait)
+            continue
+
+        if resp.status_code == 400:
+            try:
+                error_data = resp.json().get("error", {})
+                error_msg = error_data.get("message", resp.text)
+            except Exception:
+                error_msg = resp.text
+            raise RuntimeError(
+                f"DALL-E rejected the request: {error_msg}"
+            )
+
+        resp.raise_for_status()
+        break
 
     result = resp.json()
     data = result.get("data", [])
