@@ -147,7 +147,7 @@ with st.sidebar.expander("Integrations", expanded=True):
 
     google_ai_key = ""
     openai_img_key = ""
-    if image_provider.startswith("Google"):
+    if image_provider.startswith("Gemini"):
         google_ai_key = st.text_input(
             "Google AI API Key",
             value=_get_default_google_ai_key(),
@@ -1619,8 +1619,10 @@ elif st.session_state.step == 6:
             if st.button("Generate AI Slide Images", type="primary", use_container_width=True, key="gen_ai_imgs"):
                 if google_ai_key:
                     os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
+                    os.environ.pop("OPENAI_API_KEY", None)
                 elif openai_img_key:
                     os.environ["OPENAI_API_KEY"] = openai_img_key
+                    os.environ.pop("GOOGLE_AI_API_KEY", None)
                 _require_api_key()
                 with st.spinner("Generating image prompts and AI images... This may take 30-60s."):
                     try:
@@ -1707,8 +1709,10 @@ elif st.session_state.step == 6:
                 if use_ai_bg:
                     if google_ai_key:
                         os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
+                        os.environ.pop("OPENAI_API_KEY", None)
                     elif openai_img_key:
                         os.environ["OPENAI_API_KEY"] = openai_img_key
+                        os.environ.pop("GOOGLE_AI_API_KEY", None)
                 _require_api_key()
                 with st.spinner("Generating voiceover scripts and building video... This may take a minute."):
                     try:
