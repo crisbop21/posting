@@ -78,186 +78,216 @@ def _calc_title_font_size(title_text: str, max_width: int, base_size: int = 90) 
 
 
 def _bg_neon_cyber(img: Image.Image, bg: tuple, accent: tuple, seed: int):
-    """Dark bg with diagonal gradient, neon glow circles, and grid lines."""
+    """Dark bg with candlestick chart pattern and ticker tape — Wall Street trading floor vibe."""
     w, h = img.size
     draw = ImageDraw.Draw(img)
     rng = random.Random(seed)
 
-    # Diagonal gradient: bg -> slightly lighter
-    bg2 = _lerp_color(bg, accent, 0.08)
+    # Subtle vertical gradient
+    bg2 = _lerp_color(bg, accent, 0.06)
     for y in range(h):
         t = y / h
         c = _lerp_color(bg, bg2, t)
         draw.line([(0, y), (w, y)], fill=c)
 
-    # Subtle grid lines
-    grid_color = _lerp_color(bg, accent, 0.12)
-    spacing = w // 8
-    for x in range(0, w, spacing):
-        draw.line([(x, 0), (x, h)], fill=grid_color, width=1)
-    for y in range(0, h, spacing):
+    # Faint price grid lines
+    grid_color = _lerp_color(bg, accent, 0.08)
+    spacing = h // 12
+    for y in range(spacing, h, spacing):
         draw.line([(0, y), (w, y)], fill=grid_color, width=1)
 
-    # Neon glow circles (drawn on overlay, then blurred and composited)
-    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow)
-    for _ in range(rng.randint(5, 9)):
-        cx = rng.randint(0, w)
-        cy = rng.randint(0, h)
-        r = rng.randint(40, 160)
-        alpha = rng.randint(20, 50)
-        glow_draw.ellipse(
-            [cx - r, cy - r, cx + r, cy + r],
-            fill=(*accent, alpha),
-        )
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=50))
-    img.paste(Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), glow).convert("RGB"),
-              mask=glow.split()[3])
+    # Candlestick chart pattern in the lower half
+    candle_overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    cdraw = ImageDraw.Draw(candle_overlay)
+    num_candles = rng.randint(18, 30)
+    candle_w = max(w // (num_candles + 4), 8)
+    gap = max(candle_w // 3, 2)
+    base_y = int(h * 0.55)
+    trend_slope = rng.uniform(-0.12, 0.12)
+    green = _lerp_color(accent, (0, 200, 80), 0.6)
+    red = _lerp_color(accent, (200, 50, 50), 0.5)
 
-    # Small bright dots (stars)
-    for _ in range(rng.randint(30, 60)):
-        dx = rng.randint(0, w)
-        dy = rng.randint(0, h)
-        dot_r = rng.randint(1, 3)
-        dot_alpha = rng.randint(80, 180)
-        dot_color = _lerp_color(accent, (255, 255, 255), 0.6)
-        draw = ImageDraw.Draw(img)
-        draw.ellipse([dx - dot_r, dy - dot_r, dx + dot_r, dy + dot_r], fill=dot_color)
+    for i in range(num_candles):
+        x = int(w * 0.05) + i * (candle_w + gap)
+        if x + candle_w > w:
+            break
+        trend_offset = int(trend_slope * i * 8)
+        open_y = base_y + rng.randint(-60, 60) + trend_offset
+        close_y = open_y + rng.randint(-50, 50)
+        high_y = min(open_y, close_y) - rng.randint(10, 40)
+        low_y = max(open_y, close_y) + rng.randint(10, 40)
+        is_green = close_y < open_y
+        color = green if is_green else red
+        alpha = rng.randint(25, 50)
+        mid_x = x + candle_w // 2
+        # Wick
+        cdraw.line([(mid_x, high_y), (mid_x, low_y)], fill=(*color, alpha), width=1)
+        # Body
+        body_top = min(open_y, close_y)
+        body_bot = max(open_y, close_y)
+        cdraw.rectangle([x, body_top, x + candle_w, body_bot], fill=(*color, alpha))
+
+    candle_overlay = candle_overlay.filter(ImageFilter.GaussianBlur(radius=3))
+    img.paste(
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), candle_overlay).convert("RGB"),
+        mask=candle_overlay.split()[3],
+    )
+
+    # Ticker tape strip near the top
+    ticker_y = int(h * 0.02)
+    ticker_h = int(h * 0.025)
+    ticker_color = _lerp_color(bg, accent, 0.10)
+    draw.rectangle([0, ticker_y, w, ticker_y + ticker_h], fill=ticker_color)
 
 
 def _bg_warm_editorial(img: Image.Image, bg: tuple, accent: tuple, seed: int):
-    """Warm radial gradient with soft bokeh circles."""
+    """Warm bg with rising line chart and dollar sign watermarks — Wall Street editorial."""
     w, h = img.size
     draw = ImageDraw.Draw(img)
     rng = random.Random(seed)
 
-    # Radial gradient from center
-    center_color = _lerp_color(bg, accent, 0.15)
-    cx, cy = w // 2, int(h * 0.4)
-    max_dist = math.sqrt(cx ** 2 + cy ** 2) * 1.2
+    # Warm vertical gradient
+    bg2 = _lerp_color(bg, accent, 0.10)
     for y in range(h):
-        for x_step in range(0, w, 4):  # step by 4 for performance
-            dist = math.sqrt((x_step - cx) ** 2 + (y - cy) ** 2)
-            t = min(dist / max_dist, 1.0)
-            c = _lerp_color(center_color, bg, t)
-            draw.line([(x_step, y), (x_step + 3, y)], fill=c)
+        t = y / h
+        c = _lerp_color(bg, bg2, t * 0.5)
+        draw.line([(0, y), (w, y)], fill=c)
 
-    # Soft bokeh circles
-    bokeh = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    bdraw = ImageDraw.Draw(bokeh)
-    warm_tones = [
-        _lerp_color(accent, (255, 200, 100), 0.3),
-        _lerp_color(accent, (255, 180, 80), 0.5),
-        accent,
-    ]
-    for _ in range(rng.randint(8, 14)):
-        bx = rng.randint(-100, w + 100)
-        by = rng.randint(-100, h + 100)
-        br = rng.randint(60, 200)
-        bc = rng.choice(warm_tones)
-        alpha = rng.randint(12, 30)
-        bdraw.ellipse([bx - br, by - br, bx + br, by + br], fill=(*bc, alpha))
-        # Ring outline
-        bdraw.ellipse(
-            [bx - br, by - br, bx + br, by + br],
-            outline=(*bc, alpha + 10), width=2,
-        )
-    bokeh = bokeh.filter(ImageFilter.GaussianBlur(radius=25))
+    # Rising stock line chart in background
+    chart = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    cdraw = ImageDraw.Draw(chart)
+    for line_i in range(rng.randint(2, 4)):
+        points = []
+        y_base = rng.randint(int(h * 0.4), int(h * 0.7))
+        for xi in range(0, w + 30, 30):
+            trend = -int((xi / w) * h * rng.uniform(0.08, 0.18))
+            noise = rng.randint(-20, 20)
+            points.append((xi, y_base + trend + noise))
+        alpha = rng.randint(18, 35)
+        line_color = _lerp_color(accent, (255, 200, 100), 0.3)
+        if len(points) >= 2:
+            cdraw.line(points, fill=(*line_color, alpha), width=rng.randint(2, 3))
+            fill_points = points + [(w, h), (0, h)]
+            cdraw.polygon(fill_points, fill=(*line_color, alpha // 4))
+    chart = chart.filter(ImageFilter.GaussianBlur(radius=6))
     img.paste(
-        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), bokeh).convert("RGB"),
-        mask=bokeh.split()[3],
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), chart).convert("RGB"),
+        mask=chart.split()[3],
+    )
+
+    # Faint dollar sign watermarks
+    watermark = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    wdraw = ImageDraw.Draw(watermark)
+    try:
+        dollar_font = _load_font("sans_bold", 120)
+    except Exception:
+        dollar_font = None
+    if dollar_font:
+        for _ in range(rng.randint(3, 6)):
+            dx = rng.randint(-50, w)
+            dy = rng.randint(0, h)
+            alpha = rng.randint(8, 18)
+            wdraw.text((dx, dy), "$", fill=(*accent, alpha), font=dollar_font)
+    watermark = watermark.filter(ImageFilter.GaussianBlur(radius=15))
+    img.paste(
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), watermark).convert("RGB"),
+        mask=watermark.split()[3],
     )
 
 
 def _bg_ice_blue(img: Image.Image, bg: tuple, accent: tuple, seed: int):
-    """Cool diagonal gradient with frost dots and light streaks."""
+    """Cool bg with stock ticker grid and bar chart silhouette — Bloomberg terminal vibe."""
     w, h = img.size
     draw = ImageDraw.Draw(img)
     rng = random.Random(seed)
 
-    # Diagonal gradient (top-left dark -> bottom-right lighter)
-    corner_color = _lerp_color(bg, accent, 0.18)
+    # Clean diagonal gradient
+    corner_color = _lerp_color(bg, accent, 0.10)
     for y in range(h):
         t = y / h
-        row_start = _lerp_color(bg, _lerp_color(bg, corner_color, t * 0.5), t)
-        row_end = _lerp_color(bg, corner_color, t)
-        for x_step in range(0, w, 4):
-            xt = x_step / w
-            c = _lerp_color(row_start, row_end, xt)
-            draw.line([(x_step, y), (x_step + 3, y)], fill=c)
+        c = _lerp_color(bg, corner_color, t * 0.6)
+        draw.line([(0, y), (w, y)], fill=c)
 
-    # Light streaks (diagonal lines)
-    streak = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    sdraw = ImageDraw.Draw(streak)
-    for _ in range(rng.randint(3, 6)):
-        sx = rng.randint(-200, w)
-        sy = rng.randint(-200, h)
-        length = rng.randint(400, 900)
-        alpha = rng.randint(8, 18)
-        sdraw.line(
-            [(sx, sy), (sx + length, sy + int(length * 0.6))],
-            fill=(*accent, alpha), width=rng.randint(40, 100),
-        )
-    streak = streak.filter(ImageFilter.GaussianBlur(radius=40))
+    # Faint horizontal price grid
+    grid_color = _lerp_color(bg, accent, 0.06)
+    for y in range(0, h, h // 15):
+        draw.line([(0, y), (w, y)], fill=grid_color, width=1)
+
+    # Bar chart silhouette in bottom area
+    bars = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    bdraw = ImageDraw.Draw(bars)
+    num_bars = rng.randint(20, 35)
+    bar_w = max(w // (num_bars + 6), 6)
+    bar_gap = max(bar_w // 4, 2)
+    for i in range(num_bars):
+        x = int(w * 0.05) + i * (bar_w + bar_gap)
+        if x + bar_w > w:
+            break
+        bar_h = rng.randint(int(h * 0.03), int(h * 0.20))
+        bar_y = h - int(h * 0.08) - bar_h
+        alpha = rng.randint(15, 30)
+        bar_color = _lerp_color(accent, (100, 200, 255), rng.random() * 0.4)
+        bdraw.rectangle([x, bar_y, x + bar_w, h - int(h * 0.08)], fill=(*bar_color, alpha))
+    bars = bars.filter(ImageFilter.GaussianBlur(radius=4))
     img.paste(
-        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), streak).convert("RGB"),
-        mask=streak.split()[3],
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), bars).convert("RGB"),
+        mask=bars.split()[3],
     )
-
-    # Frost dots
-    draw = ImageDraw.Draw(img)
-    for _ in range(rng.randint(40, 80)):
-        fx = rng.randint(0, w)
-        fy = rng.randint(0, h)
-        fr = rng.randint(1, 4)
-        fc = _lerp_color(accent, (255, 255, 255), rng.random() * 0.5)
-        draw.ellipse([fx - fr, fy - fr, fx + fr, fy + fr], fill=fc)
 
 
 def _bg_bold_red(img: Image.Image, bg: tuple, accent: tuple, seed: int):
-    """Dark radial gradient with angular geometric shapes."""
+    """Dark bg with downtrend arrow and warning-style diagonal stripes — market crash vibe."""
     w, h = img.size
     draw = ImageDraw.Draw(img)
     rng = random.Random(seed)
 
-    # Radial gradient from bottom-right corner
-    cx, cy = int(w * 0.8), int(h * 0.7)
-    hot_spot = _lerp_color(bg, accent, 0.20)
-    max_dist = math.sqrt(w ** 2 + h ** 2)
+    # Dark gradient from top
+    bg2 = _lerp_color(bg, accent, 0.08)
     for y in range(h):
-        dist_y = (y - cy) ** 2
-        for x_step in range(0, w, 4):
-            dist = math.sqrt((x_step - cx) ** 2 + dist_y)
-            t = min(dist / max_dist, 1.0)
-            c = _lerp_color(hot_spot, bg, t)
-            draw.line([(x_step, y), (x_step + 3, y)], fill=c)
+        t = y / h
+        c = _lerp_color(bg, bg2, t * 0.4)
+        draw.line([(0, y), (w, y)], fill=c)
 
-    # Angular geometric shapes (triangles / diamonds)
-    shapes = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    shdraw = ImageDraw.Draw(shapes)
-    for _ in range(rng.randint(4, 8)):
-        cx_ = rng.randint(0, w)
-        cy_ = rng.randint(0, h)
-        size = rng.randint(80, 300)
-        alpha = rng.randint(10, 25)
-        # Diamond
-        pts = [
-            (cx_, cy_ - size),
-            (cx_ + size, cy_),
-            (cx_, cy_ + size),
-            (cx_ - size, cy_),
-        ]
-        shdraw.polygon(pts, fill=(*accent, alpha))
-        shdraw.polygon(pts, outline=(*accent, alpha + 15), width=2)
-    shapes = shapes.filter(ImageFilter.GaussianBlur(radius=15))
+    # Downtrend line chart
+    chart = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    cdraw = ImageDraw.Draw(chart)
+    for line_i in range(rng.randint(2, 3)):
+        points = []
+        y_base = rng.randint(int(h * 0.25), int(h * 0.4))
+        for xi in range(0, w + 30, 30):
+            trend = int((xi / w) * h * rng.uniform(0.08, 0.18))
+            noise = rng.randint(-25, 25)
+            points.append((xi, y_base + trend + noise))
+        alpha = rng.randint(20, 40)
+        if len(points) >= 2:
+            cdraw.line(points, fill=(*accent, alpha), width=2)
+            fill_points = points + [(w, h), (0, h)]
+            cdraw.polygon(fill_points, fill=(*accent, alpha // 5))
+    chart = chart.filter(ImageFilter.GaussianBlur(radius=5))
     img.paste(
-        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), shapes).convert("RGB"),
-        mask=shapes.split()[3],
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), chart).convert("RGB"),
+        mask=chart.split()[3],
+    )
+
+    # Subtle diagonal warning stripes in corner
+    stripes = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    sdraw = ImageDraw.Draw(stripes)
+    stripe_w = 20
+    for i in range(-h, w, stripe_w * 3):
+        alpha = rng.randint(6, 14)
+        sdraw.line(
+            [(i, h), (i + h, 0)],
+            fill=(*accent, alpha), width=stripe_w,
+        )
+    stripes = stripes.filter(ImageFilter.GaussianBlur(radius=8))
+    img.paste(
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), stripes).convert("RGB"),
+        mask=stripes.split()[3],
     )
 
 
 def _bg_green_money(img: Image.Image, bg: tuple, accent: tuple, seed: int):
-    """Dark bg with upward chart lines and floating currency circles."""
+    """Dark bg with bullish trend lines, volume bars, and percentage watermarks — bull market vibe."""
     w, h = img.size
     draw = ImageDraw.Draw(img)
     rng = random.Random(seed)
@@ -269,80 +299,101 @@ def _bg_green_money(img: Image.Image, bg: tuple, accent: tuple, seed: int):
         c = _lerp_color(bg2, bg, t)
         draw.line([(0, y), (w, y)], fill=c)
 
-    # Chart-like upward trend lines
+    # Bullish trend line chart
     chart = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     cdraw = ImageDraw.Draw(chart)
-    for line_i in range(rng.randint(3, 5)):
+    for line_i in range(rng.randint(2, 4)):
         points = []
-        y_base = rng.randint(int(h * 0.3), int(h * 0.8))
+        y_base = rng.randint(int(h * 0.4), int(h * 0.7))
         for xi in range(0, w + 40, 40):
-            # Trending up with noise
-            trend = -int((xi / w) * h * rng.uniform(0.05, 0.15))
-            noise = rng.randint(-30, 30)
+            trend = -int((xi / w) * h * rng.uniform(0.06, 0.16))
+            noise = rng.randint(-20, 20)
             points.append((xi, y_base + trend + noise))
-        alpha = rng.randint(15, 35)
+        alpha = rng.randint(18, 38)
         if len(points) >= 2:
-            cdraw.line(points, fill=(*accent, alpha), width=rng.randint(2, 4))
-            # Fill area below the line
+            cdraw.line(points, fill=(*accent, alpha), width=rng.randint(2, 3))
             fill_points = points + [(w, h), (0, h)]
-            cdraw.polygon(fill_points, fill=(*accent, alpha // 3))
-    chart = chart.filter(ImageFilter.GaussianBlur(radius=8))
+            cdraw.polygon(fill_points, fill=(*accent, alpha // 4))
+    chart = chart.filter(ImageFilter.GaussianBlur(radius=6))
     img.paste(
         Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), chart).convert("RGB"),
         mask=chart.split()[3],
     )
 
-    # Floating circles with $ sign vibe (just circles)
-    draw = ImageDraw.Draw(img)
-    for _ in range(rng.randint(8, 15)):
-        cx_ = rng.randint(0, w)
-        cy_ = rng.randint(0, h)
-        cr = rng.randint(15, 50)
-        ring_c = _lerp_color(bg, accent, rng.uniform(0.15, 0.35))
-        draw.ellipse([cx_ - cr, cy_ - cr, cx_ + cr, cy_ + cr], outline=ring_c, width=2)
+    # Volume bars along bottom
+    vol = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    vdraw = ImageDraw.Draw(vol)
+    num_bars = rng.randint(25, 40)
+    bar_w = max(w // (num_bars + 4), 4)
+    bar_gap = max(bar_w // 5, 1)
+    for i in range(num_bars):
+        x = int(w * 0.03) + i * (bar_w + bar_gap)
+        if x + bar_w > w:
+            break
+        bar_h = rng.randint(int(h * 0.01), int(h * 0.08))
+        alpha = rng.randint(12, 28)
+        vdraw.rectangle(
+            [x, h - int(h * 0.05) - bar_h, x + bar_w, h - int(h * 0.05)],
+            fill=(*accent, alpha),
+        )
+    vol = vol.filter(ImageFilter.GaussianBlur(radius=3))
+    img.paste(
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), vol).convert("RGB"),
+        mask=vol.split()[3],
+    )
+
+    # Faint percentage watermarks
+    watermark = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    wdraw = ImageDraw.Draw(watermark)
+    try:
+        pct_font = _load_font("sans_bold", 80)
+    except Exception:
+        pct_font = None
+    if pct_font:
+        symbols = ["+2.4%", "+5.1%", "+0.8%", "+3.7%"]
+        for _ in range(rng.randint(2, 4)):
+            dx = rng.randint(-30, w - 100)
+            dy = rng.randint(0, h)
+            alpha = rng.randint(6, 14)
+            wdraw.text((dx, dy), rng.choice(symbols), fill=(*accent, alpha), font=pct_font)
+    watermark = watermark.filter(ImageFilter.GaussianBlur(radius=12))
+    img.paste(
+        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), watermark).convert("RGB"),
+        mask=watermark.split()[3],
+    )
 
 
 def _bg_soft_minimal(img: Image.Image, bg: tuple, accent: tuple, seed: int):
-    """Light gradient with subtle geometric circles and thin lines."""
+    """Clean light background with thin horizontal rules — professional finance report style."""
     w, h = img.size
     draw = ImageDraw.Draw(img)
     rng = random.Random(seed)
 
-    # Soft vertical gradient (light -> slightly warmer)
-    bg2 = _lerp_color(bg, (240, 235, 225), 0.3)
+    # Clean vertical gradient (light -> slightly warmer)
+    bg2 = _lerp_color(bg, (240, 235, 225), 0.15)
     for y in range(h):
         t = y / h
         c = _lerp_color(bg, bg2, t)
         draw.line([(0, y), (w, y)], fill=c)
 
-    # Large subtle circles
-    shapes = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    shdraw = ImageDraw.Draw(shapes)
-    for _ in range(rng.randint(3, 6)):
-        cx_ = rng.randint(-100, w + 100)
-        cy_ = rng.randint(-100, h + 100)
-        cr = rng.randint(150, 400)
-        alpha = rng.randint(10, 20)
-        shdraw.ellipse(
-            [cx_ - cr, cy_ - cr, cx_ + cr, cy_ + cr],
-            outline=(*accent, alpha + 15), width=2,
-        )
-        shdraw.ellipse(
-            [cx_ - cr, cy_ - cr, cx_ + cr, cy_ + cr],
-            fill=(*accent, alpha),
-        )
-    shapes = shapes.filter(ImageFilter.GaussianBlur(radius=20))
-    img.paste(
-        Image.alpha_composite(Image.new("RGBA", (w, h), (0, 0, 0, 0)), shapes).convert("RGB"),
-        mask=shapes.split()[3],
-    )
+    # Thin horizontal rules (like a financial report)
+    rule_color = _lerp_color(bg, accent, 0.08)
+    margin = int(w * 0.12)
+    spacing = h // 18
+    for y in range(spacing * 2, h - spacing, spacing):
+        draw.line([(margin, y), (w - margin, y)], fill=rule_color, width=1)
 
-    # Thin decorative lines
-    draw = ImageDraw.Draw(img)
-    line_color = _lerp_color(bg, accent, 0.12)
-    for _ in range(rng.randint(2, 4)):
-        lx = rng.randint(0, w)
-        draw.line([(lx, 0), (lx + rng.randint(-100, 100), h)], fill=line_color, width=1)
+    # Subtle corner accent (top-right and bottom-left)
+    accent_muted = _lerp_color(bg, accent, 0.12)
+    length = int(min(w, h) * 0.06)
+    thickness = 2
+    m = int(w * 0.08)
+    # Top-right
+    draw.line([(w - m - length, m), (w - m, m)], fill=accent_muted, width=thickness)
+    draw.line([(w - m, m), (w - m, m + length)], fill=accent_muted, width=thickness)
+    # Bottom-left
+    draw.line([(m, h - m), (m + length, h - m)], fill=accent_muted, width=thickness)
+    draw.line([(m, h - m - length), (m, h - m)], fill=accent_muted, width=thickness)
 
 
 # Map style name -> background painter
@@ -420,7 +471,7 @@ STYLE_PRESETS: list[dict] = [
             "background": "#0A0A1A",
             "title": "#00FFAA",
             "body": "#E0E0FF",
-            "accent": "#FF00FF",
+            "accent": "#00CC88",
         },
         "title_font": "sans_bold",
         "body_font": "sans",

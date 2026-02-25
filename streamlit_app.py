@@ -1136,7 +1136,8 @@ elif st.session_state.step == 7:
     st.divider()
     st.subheader("Alternative Style Versions")
     st.caption(
-        "Generate multiple design variations with different color schemes and layouts. "
+        "Generate multiple design variations with finance-themed backgrounds "
+        "(candlestick charts, trend lines, volume bars). "
         "Works instantly offline — no login, no API keys, no internet needed."
     )
     mcp_cols = st.columns([2, 1])
