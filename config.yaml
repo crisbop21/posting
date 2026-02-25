@@ -63,6 +63,15 @@ video:
   min_duration: 4.0
   # Extra silence after voiceover ends per slide (seconds)
   padding: 0.8
+  # Use AI-generated background images (requires REPLICATE_API_TOKEN)
+  ai_images: false
+
+# AI image generation (optional, requires Replicate API token)
+# Uses Flux Schnell via Replicate — ~$0.003 per image, ~2-4s per generation
+images:
+  # Replicate model: "black-forest-labs/flux-schnell" (fast, cheap)
+  # or "black-forest-labs/flux-1.1-pro" (best quality, ~$0.04/image)
+  model: "black-forest-labs/flux-schnell"
 
 # Output
 output:

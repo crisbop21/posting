@@ -1084,6 +1084,64 @@ def strip_claim_tags(slides: list[dict]) -> list[dict]:
     ]
 
 
+def generate_image_prompts(
+    slides: list[dict],
+    topic: str = "",
+    angle: str = "",
+) -> list[str]:
+    """Generate cinematic image prompts for each slide.
+
+    Returns a list of image generation prompts optimized for Flux,
+    one per slide. Each prompt describes a visually striking,
+    finance-themed scene that matches the slide content.
+    """
+    slide_text = json.dumps(slides, indent=2)
+    prompt = f"""You are an expert visual director creating image prompts for AI image generation (Flux/Stable Diffusion).
+
+Topic: {topic or 'finance'}
+Angle: {angle or 'general'}
+
+Here are the slides:
+{slide_text}
+
+Generate ONE image prompt per slide. Each prompt should describe a cinematic, visually striking scene that:
+
+1. Matches the slide's content and mood (bullish = green/gold/upward, bearish = red/dark/downward)
+2. Uses finance-themed imagery: trading floors, stock tickers, cityscapes, charts, currency, corporate boardrooms, Federal Reserve building, Wall Street, tech offices
+3. Is photorealistic and cinematic — think movie poster or documentary still
+4. Includes lighting direction (e.g., "dramatic golden hour lighting", "neon-lit", "cold blue fluorescent")
+5. Never includes text, logos, watermarks, or UI elements
+6. Is 20-40 words — specific enough for good results, not overly detailed
+7. Varies across slides — don't repeat the same scene
+
+Style keywords to use: "cinematic", "photorealistic", "shallow depth of field", "dramatic lighting", "8k", "editorial photography"
+
+Return your response as a JSON array of strings, one prompt per slide:
+["prompt for slide 1", "prompt for slide 2", ...]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    result = _parse_json(text)
+
+    if isinstance(result, list):
+        while len(result) < len(slides):
+            result.append(result[-1] if result else "cinematic finance scene, dramatic lighting, 8k")
+        return result[: len(slides)]
+
+    # Fallback: generate generic finance prompts
+    return [
+        f"Cinematic {topic or 'finance'} scene, dramatic lighting, photorealistic, 8k, editorial photography"
+        for _ in slides
+    ]
+
+
 def generate_video_script(
     slides: list[dict],
     topic: str = "",

@@ -261,8 +261,10 @@ def run(config_path: str = "config.yaml") -> None:
 
     # ── Build narrated video (if ElevenLabs key is set) ──────────────────
     video_cfg = config.get("video", {})
+    use_ai_images = video_cfg.get("ai_images", False) and os.environ.get("REPLICATE_API_TOKEN")
     if os.environ.get("ELEVENLABS_API_KEY"):
-        print("\nBuilding narrated video...")
+        ai_label = " with AI images" if use_ai_images else ""
+        print(f"\nBuilding narrated video{ai_label}...")
         try:
             video_result = build_video_from_slides(
                 slides=slides,
@@ -272,16 +274,23 @@ def run(config_path: str = "config.yaml") -> None:
                 aspect_ratio=aspect_ratio,
                 output_dir=output_dir,
                 voice_id=video_cfg.get("voice_id", "pNInz6obpgDQGcFmaJgB"),
+                use_ai_images=use_ai_images,
             )
             print(f"  Video saved to: {video_result['video_path']}")
             print("\n── Voiceover Scripts ──")
             for i, script in enumerate(video_result["scripts"], 1):
                 print(f"  Slide {i}: {script}")
+            if video_result.get("image_prompts"):
+                print("\n── Image Prompts ──")
+                for i, prompt in enumerate(video_result["image_prompts"], 1):
+                    print(f"  Slide {i}: {prompt}")
         except Exception as exc:
             print(f"  Video generation failed: {exc}")
             print("  (Slides were exported successfully as PPTX above)")
     else:
         print("\nTip: Set ELEVENLABS_API_KEY to auto-generate narrated video.")
+        if not os.environ.get("REPLICATE_API_TOKEN"):
+            print("Tip: Set REPLICATE_API_TOKEN for AI-generated slide images (Flux).")
 
 
 def main():
