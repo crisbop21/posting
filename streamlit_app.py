@@ -60,7 +60,7 @@ def load_config(path: str = "config.yaml") -> dict:
 st.set_page_config(page_title="Posting: Finance Slides", page_icon="📊", layout="wide")
 
 st.title("Posting")
-st.caption("Generate trending finance slide decks for TikTok & Instagram · v2.1-imagen4")
+st.caption("Generate trending finance slide decks for TikTok & Instagram · v2.2-gemini")
 
 # ── Sidebar: Settings (collapsible groups) ────────────────────────────────────
 
@@ -140,9 +140,9 @@ with st.sidebar.expander("Integrations", expanded=True):
     st.markdown("**Image Generation**")
     image_provider = st.selectbox(
         "AI Image Provider",
-        ["Google Imagen 4 (Free)", "OpenAI DALL-E 3"],
+        ["Gemini Flash (Free)", "OpenAI DALL-E 3"],
         index=0,
-        help="Google Imagen 4 is free (~50 images/day). DALL-E 3 requires a paid OpenAI key.",
+        help="Gemini Flash is free with a Google AI Studio key. DALL-E 3 requires a paid OpenAI key.",
     )
 
     google_ai_key = ""
@@ -1593,7 +1593,7 @@ elif st.session_state.step == 6:
                 st.divider()
 
     # ══════════════════════════════════════════════════════════════════════
-    # TAB: AI Images (Google Imagen 4 / OpenAI DALL-E 3)
+    # TAB: AI Images (Gemini Flash / OpenAI DALL-E 3)
     # ══════════════════════════════════════════════════════════════════════
 
     with studio_tabs[2]:
@@ -1603,11 +1603,11 @@ elif st.session_state.step == 6:
             st.info(
                 "Add an image generation API key in the sidebar under Integrations "
                 "to generate cinematic AI background images for each slide.\n\n"
-                "**Google Imagen 4** is free (~50 images/day) — get a key at "
+                "**Gemini Flash** is free — get a key at "
                 "[aistudio.google.com/apikey](https://aistudio.google.com/apikey)"
             )
         else:
-            provider_label = "Google Imagen 4" if google_ai_key else "OpenAI DALL-E 3"
+            provider_label = "Gemini Flash" if google_ai_key else "OpenAI DALL-E 3"
             st.caption(
                 f"Generate cinematic AI backgrounds using {provider_label}. "
                 "Claude creates visual prompts, the AI generates photorealistic images, "
@@ -1692,7 +1692,7 @@ elif st.session_state.step == 6:
 
             use_ai_bg = False
             if ai_images_enabled:
-                provider_label = "Google Imagen 4" if google_ai_key else "DALL-E 3"
+                provider_label = "Gemini Flash" if google_ai_key else "DALL-E 3"
                 use_ai_bg = st.checkbox(
                     "Use AI-generated background images",
                     value=True,
