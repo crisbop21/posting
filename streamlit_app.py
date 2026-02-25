@@ -148,6 +148,96 @@ with st.sidebar.expander("Integrations", expanded=True):
     )
     canva_enabled = bool(canva_client_id and canva_client_secret)
 
+# ── Demo Mode ─────────────────────────────────────────────────────────────────
+
+demo_mode = not api_key
+
+if demo_mode:
+    st.sidebar.warning("No API key — running in **Demo Mode** with sample finance data.")
+
+# Demo data: a coherent Tesla Q4 story used across all steps
+_DEMO_TOPICS = [
+    {
+        "title": "Tesla Stock Surges 15% After Record Q4 Deliveries",
+        "description": "Tesla reported 495,570 vehicle deliveries in Q4 2024, beating Wall Street estimates of 483,000. The stock rallied 15% in two days. Analysts point to strong Model Y demand in China and Europe as key drivers.",
+    },
+    {
+        "title": "Fed Holds Rates Steady — What It Means for Your Portfolio",
+        "description": "The Federal Reserve kept the federal funds rate at 4.25-4.50% for the second consecutive meeting. Chair Powell signaled patience on cuts, citing sticky inflation at 2.7%. Bond yields fell while growth stocks rallied.",
+    },
+    {
+        "title": "Bitcoin Breaks $100K — Is This Time Different?",
+        "description": "Bitcoin surged past $100,000 for the first time, driven by spot ETF inflows exceeding $2B/week. BlackRock's IBIT is now the fastest-growing ETF in history.",
+    },
+    {
+        "title": "NVIDIA Earnings Crush Estimates — AI Spending Boom Continues",
+        "description": "NVIDIA reported Q4 revenue of $22.1B, up 265% YoY, with data center revenue at $18.4B. CEO Jensen Huang announced Blackwell GPU demand is 'insane.'",
+    },
+    {
+        "title": "Oil Drops Below $70 — Winners and Losers",
+        "description": "Crude oil fell to $66/barrel on weakening Chinese demand and rising US production at 13.3M barrels/day. Airline stocks surged while energy faced pressure.",
+    },
+]
+
+_DEMO_BULLETS = [
+    {"bullet": "Tesla delivered 495,570 vehicles in Q4 2024, beating consensus of 483,000", "value": "495,570 deliveries", "source": "Tesla IR", "confidence": "high"},
+    {"bullet": "TSLA stock rallied 15% in two trading sessions following the report", "value": "15% rally", "source": "Yahoo Finance", "confidence": "high"},
+    {"bullet": "Model Y was the best-selling car globally in 2024 with 1.2M units", "value": "1.2M Model Y", "source": "Reuters", "confidence": "high"},
+    {"bullet": "Tesla's China sales grew 8.8% YoY in Q4, with 157,000 units delivered", "value": "157K China deliveries", "source": "CPCA data", "confidence": "high"},
+    {"bullet": "Gross margins improved to 18.2%, up from 17.6% in Q3", "value": "18.2% gross margin", "source": "Tesla 10-Q", "confidence": "high"},
+    {"bullet": "Cybertruck production exceeded 4,000 units/week by end of Q4", "value": "4K/week Cybertruck", "source": "Tesla earnings call", "confidence": "high"},
+    {"bullet": "Tesla Energy revenue hit $1.4B in Q4, up 75% YoY", "value": "$1.4B energy revenue", "source": "Tesla IR", "confidence": "high"},
+    {"bullet": "Free cash flow was $2.1B in Q4, above analyst expectations of $1.5B", "value": "$2.1B FCF", "source": "Tesla 10-Q", "confidence": "high"},
+    {"bullet": "Elon Musk reaffirmed target of 20M vehicles/year by 2030", "value": "20M by 2030", "source": "Earnings call", "confidence": "medium"},
+    {"bullet": "Average selling price declined 5% YoY due to price cuts in China and Europe", "value": "5% ASP decline", "source": "Bloomberg", "confidence": "high"},
+    {"bullet": "Tesla Full Self-Driving v12.5 showed 60% fewer interventions in testing", "value": "60% fewer interventions", "source": "Tesla AI blog", "confidence": "medium"},
+    {"bullet": "Short interest on TSLA dropped to 2.8%, lowest since 2020", "value": "2.8% short interest", "source": "S3 Partners", "confidence": "high"},
+    {"bullet": "Institutional ownership increased to 44% from 41% in Q3", "value": "44% institutional", "source": "SEC 13-F filings", "confidence": "high"},
+    {"bullet": "Tesla market cap reached $850B, 7th most valuable company globally", "value": "$850B market cap", "source": "Yahoo Finance", "confidence": "high"},
+    {"bullet": "Q4 automotive revenue was $21.6B, up 8% YoY", "value": "$21.6B auto revenue", "source": "Tesla IR", "confidence": "high"},
+    {"bullet": "Operating expenses grew only 3% YoY despite revenue growing 8%", "value": "3% OpEx growth", "source": "Tesla 10-Q", "confidence": "high"},
+    {"bullet": "Tesla deployed 14.7 GWh of energy storage in 2024, up 125% from 2023", "value": "14.7 GWh storage", "source": "Tesla IR", "confidence": "high"},
+    {"bullet": "Supercharger network grew to 60,000+ stalls globally", "value": "60K+ superchargers", "source": "Tesla website", "confidence": "high"},
+    {"bullet": "Analyst consensus price target is $285, high of $380 (Morgan Stanley)", "value": "$285 consensus PT", "source": "TipRanks", "confidence": "medium"},
+    {"bullet": "Tesla announced next-gen affordable vehicle starting under $25K in late 2025", "value": "Sub-$25K vehicle", "source": "Earnings call", "confidence": "medium"},
+    {"bullet": "Options market implied 12% move ahead of earnings, actual was 15%", "value": "15% vs 12% implied", "source": "CBOE", "confidence": "high"},
+    {"bullet": "Tesla Semi deliveries to PepsiCo exceeded 100 units with 500-mile range", "value": "100+ Semi units", "source": "PepsiCo report", "confidence": "medium"},
+]
+
+_DEMO_HOOKS = [
+    {"hook": "Tesla just did something it hasn't done in 3 years — and Wall Street is losing it", "style": "curiosity gap", "data_used": "Record Q4 deliveries beating estimates, 15% stock rally", "fit_score": 9},
+    {"hook": "495,570 vehicles. That's not a typo.", "style": "stat shock", "data_used": "Q4 delivery numbers, Wall Street consensus miss", "fit_score": 8},
+    {"hook": "Everyone said Tesla was done. The numbers say otherwise.", "style": "contrarian", "data_used": "Short interest at 2.8% low, delivery beat, margin improvement", "fit_score": 8},
+    {"hook": "I analyzed Tesla's Q4 numbers so you don't have to. Here's what matters.", "style": "authority / value promise", "data_used": "Full Q4 financial data, delivery numbers, FSD progress", "fit_score": 7},
+    {"hook": "If you own TSLA, you need to see this before Monday", "style": "urgency", "data_used": "Price movement, analyst upgrades, options implied volatility", "fit_score": 7},
+]
+
+_DEMO_SLIDES = [
+    {"title": "Tesla just did something it hasn't done in 3 years", "body": "Record Q4 deliveries. Record energy revenue. And the stock is finally responding. Here's what retail investors need to know.", "footer": ""},
+    {"title": "495,570 Vehicles Delivered", "body": "Tesla crushed Q4 estimates by 12,570 units. Wall Street expected 483K. Model Y alone sold 1.2M globally in 2024 — the best-selling car on earth.", "footer": "source: Tesla IR, Reuters"},
+    {"title": "China Is Back", "body": "157,000 units delivered in China — up 8.8% YoY. Price cuts worked. Market share is climbing while BYD's growth slows in the premium segment.", "footer": "source: CPCA data"},
+    {"title": "Margins Are Healing", "body": "Gross margins hit 18.2%, up from 17.6% last quarter. The price war is ending. Tesla is proving it can grow volume AND protect margins.", "footer": "source: Tesla 10-Q"},
+    {"title": "The Energy Business Nobody Talks About", "body": "Tesla Energy did $1.4B in Q4 revenue — up 75% YoY. They deployed 14.7 GWh of storage in 2024. This segment alone could be worth $100B.", "footer": "source: Tesla IR"},
+    {"title": "Cash Machine", "body": "Free cash flow hit $2.1B — analysts expected $1.5B. Operating costs only grew 3% while revenue jumped 8%. The efficiency gains are real.", "footer": "source: Tesla 10-Q"},
+    {"title": "What's Next: The $25K Car", "body": "Tesla confirmed a sub-$25K vehicle for late 2025. FSD v12.5 has 60% fewer interventions. And Cybertruck just hit 4,000 units/week.", "footer": "source: Tesla earnings call"},
+    {"title": "The Verdict", "body": "Shorts are at a 4-year low (2.8%). Institutions are buying (44% ownership). Analyst target: $285. Tesla is executing — and the market is noticing.", "footer": "source: S3 Partners, TipRanks"},
+]
+
+_DEMO_FACT_REPORT = [
+    {"slide": 2, "status": "verified", "notes": "[news-sourced] Q4 delivery figure matches Tesla IR press release"},
+    {"slide": 3, "status": "verified", "notes": "[news-sourced] China figures match CPCA monthly data"},
+    {"slide": 4, "status": "verified", "notes": "[supporting data] Margin figures match 10-Q filing"},
+    {"slide": 5, "status": "verified", "notes": "[supporting data] Energy revenue confirmed in earnings report"},
+    {"slide": 6, "status": "verified", "notes": "[web search] FCF and OpEx figures cross-checked with SEC filing"},
+    {"slide": 7, "status": "verified", "notes": "[news-sourced] Sub-$25K vehicle confirmed in earnings call transcript"},
+    {"slide": 8, "status": "verified", "notes": "[web search] Short interest data matches S3 Partners latest report"},
+]
+
+_DEMO_METADATA = {
+    "title": "Tesla's Q4 Was INSANE — Here's What You Missed",
+    "description": "Tesla just reported record Q4 deliveries of 495,570 vehicles, crushing Wall Street estimates by 12,570 units. The stock surged 15% in two days.\n\nBut the real story isn't just cars — it's the $1.4B energy business growing 75% YoY, margins healing to 18.2%, and $2.1B in free cash flow.\n\nPlus: the sub-$25K vehicle is coming in late 2025, FSD is improving fast, and short sellers are at a 4-year low.\n\nFollow for more finance breakdowns.\n\n#Tesla #TSLA #Stocks #Investing #Finance #StockMarket #RetailInvestor #WallStreet #EV",
+}
+
 # ── Slides & Branding ─────────────────────────────────────────────────────────
 
 with st.sidebar.expander("Slides & Branding"):
@@ -440,6 +530,20 @@ if st.session_state.step == 1:
         research_btn = st.button("Research Topics", type="primary", use_container_width=True)
 
     if research_btn:
+        if demo_mode:
+            # ── Demo: populate with sample data ──
+            import time as _time
+            with st.spinner("Loading demo data..."):
+                _time.sleep(0.5)
+            st.session_state.research_text = "Demo research data for Tesla Q4 deliveries."
+            st.session_state.research_facts = [
+                {"fact": b["bullet"], "source": b["source"]}
+                for b in _DEMO_BULLETS[:10]
+            ]
+            st.session_state.topic_options = list(_DEMO_TOPICS)
+            st.toast("Demo mode: loaded 5 sample topics")
+            st.rerun()
+
         _require_api_key()
 
         with st.spinner(
@@ -569,6 +673,13 @@ elif st.session_state.step == 2:
     st.info(f"**Topic:** {topic['title']}  \n{topic['description']}")
 
     if not st.session_state.verified_bullets:
+        if demo_mode:
+            import time as _time
+            with st.spinner("Loading demo verified data..."):
+                _time.sleep(0.3)
+            st.session_state.verified_bullets = list(_DEMO_BULLETS)
+            st.rerun()
+
         _require_api_key()
         try:
             with st.spinner("Consolidating all relevant data and verifying (web search + research)..."):
@@ -642,8 +753,14 @@ elif st.session_state.step == 3:
         )
 
         if st.button("Research & Verify This Angle", disabled=not angle.strip()):
-            _require_api_key()
             st.session_state.angle = angle.strip()
+
+            if demo_mode:
+                st.session_state["angle_verified"] = True
+                st.toast("Demo mode: angle accepted without API verification")
+                st.rerun()
+
+            _require_api_key()
 
             with st.spinner("Searching for data on your angle..."):
                 try:
@@ -777,6 +894,13 @@ elif st.session_state.step == 4:
     )
 
     if not st.session_state.hook_options:
+        if demo_mode:
+            import time as _time
+            with st.spinner("Loading demo hooks..."):
+                _time.sleep(0.3)
+            st.session_state.hook_options = list(_DEMO_HOOKS)
+            st.rerun()
+
         _require_api_key()
         try:
             with st.spinner("Generating hooks grounded in your verified data..."):
@@ -877,6 +1001,60 @@ elif st.session_state.step == 5:
             st.rerun()
 
     else:
+        if demo_mode:
+            import time as _time
+
+            hook_text = hook["hook"]
+            check_names = [
+                ("Slide generation", "Creating fact-grounded slides"),
+                ("Engagement review", f"Tightening copy ({review_iterations} iterations)"),
+                ("Layered fact-check", "Verifying claims against research"),
+                ("Web verification", "Cross-checking with live data"),
+                ("Conclusion check", "Validating verdict logic"),
+                ("Coherence check", "Analyzing narrative flow"),
+                ("Final polish", "Value + cohesion pass"),
+                ("TikTok metadata", "Generating title & description"),
+            ]
+            dashboard = st.container()
+            placeholders = []
+            with dashboard:
+                for name, desc in check_names:
+                    ph = st.empty()
+                    ph.markdown(f"⬜ **{name}** — _{desc}_")
+                    placeholders.append(ph)
+
+            demo_results = [
+                f"✅ **Slide generation** — {len(_DEMO_SLIDES)} slides created",
+                f"✅ **Engagement review** — {review_iterations} passes complete",
+                f"✅ **Layered fact-check** — 7/7 claims verified",
+                "✅ **Web verification** — All claims current",
+                "✅ **Conclusion check** — Logic sound",
+                "✅ **Coherence check** — Score: 9/10",
+                "✅ **Final polish** — Coherence: 9/10",
+                "✅ **TikTok metadata** — Ready",
+            ]
+
+            for i, result_text in enumerate(demo_results):
+                placeholders[i].markdown(f"🔄 **{check_names[i][0]}** — _Working..._")
+                _time.sleep(0.25)
+                placeholders[i].markdown(result_text)
+
+            st.session_state.slides = list(_DEMO_SLIDES)
+            st.session_state.fact_check_report = list(_DEMO_FACT_REPORT)
+            st.session_state.conclusion_report = {
+                "logic_valid": True,
+                "verdict_slide": 8,
+                "issues": [],
+            }
+            st.session_state.coherence_report = {
+                "coherence_score": 9,
+                "arc_analysis": "Strong hook → evidence buildup → contrarian verdict. Clean narrative arc.",
+                "issues": [],
+            }
+            st.session_state.tiktok_metadata = dict(_DEMO_METADATA)
+            st.session_state.step = 6
+            st.rerun()
+
         _require_api_key()
 
         try:
