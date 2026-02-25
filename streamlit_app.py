@@ -46,7 +46,7 @@ from src.slides.canva_builder import (
     refresh_access_token,
     build_canva_slides,
 )
-from src.slides.canva_mcp import generate_alternative_slides
+from src.slides.png_builder import build_style_alternatives
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -1132,13 +1132,12 @@ elif st.session_state.step == 7:
     elif canva_enabled:
         st.caption("Connect your Canva account in the sidebar to enable Canva export.")
 
-    # Generate alternative versions via Canva MCP (no API keys needed)
+    # Generate alternative style versions (fully local, no login needed)
     st.divider()
-    st.subheader("Alternative Versions (Canva MCP)")
+    st.subheader("Alternative Style Versions")
     st.caption(
-        "Generate multiple design variations via the Canva MCP server. "
-        "Each alternative uses a different visual style so you can compare and pick the best one. "
-        "No API keys needed — you'll be prompted to log in to Canva in your browser on first use."
+        "Generate multiple design variations with different color schemes and layouts. "
+        "Works instantly offline — no login, no API keys, no internet needed."
     )
     mcp_cols = st.columns([2, 1])
     num_alts = mcp_cols[1].selectbox(
@@ -1153,21 +1152,18 @@ elif st.session_state.step == 7:
         use_container_width=True,
         key="mcp_generate_btn",
     ):
-        with st.spinner(
-            "Connecting to Canva MCP and generating designs... "
-            "If this is your first time, a browser window will open for Canva login."
-        ):
+        with st.spinner("Generating style alternatives..."):
             try:
-                alts = generate_alternative_slides(
+                alts = build_style_alternatives(
                     slides=slides,
-                    topic=st.session_state.selected_topic["title"],
                     aspect_ratio=aspect_ratio_val,
-                    colors=colors,
+                    output_dir="./output",
+                    handle=handle,
                     num_alternatives=num_alts,
                 )
                 st.session_state.mcp_alternatives = alts
             except Exception as exc:
-                st.error(f"MCP alternative generation failed: {exc}")
+                st.error(f"Alternative generation failed: {exc}")
         st.rerun()
 
     # ── Download Buttons ───────────────────────────────────────────────────
@@ -1251,41 +1247,38 @@ elif st.session_state.step == 7:
             "Compare with the local PNGs above to choose your favorite."
         )
 
-    # ── MCP Alternative Versions ─────────────────────────────────────────
+    # ── Local Alternative Versions ────────────────────────────────────────
     mcp_alts = st.session_state.mcp_alternatives
     if mcp_alts:
         st.divider()
         st.subheader("Alternative Design Versions")
-        alt_cols = st.columns(min(len(mcp_alts), 4))
-        for i, alt in enumerate(mcp_alts):
-            col = alt_cols[i % len(alt_cols)]
-            with col:
-                st.markdown(f"**{alt['version']}**")
-                st.caption(f"Style: {alt['style']}")
-                if alt.get("error"):
-                    st.error(alt["error"])
-                elif alt.get("edit_url"):
-                    st.link_button(
-                        "Edit in Canva",
-                        alt["edit_url"],
-                        type="primary",
-                        use_container_width=True,
-                    )
-                    if alt.get("export_url"):
-                        st.link_button(
-                            "Download PNG",
-                            alt["export_url"],
-                            use_container_width=True,
-                        )
-                    if alt.get("design_id"):
-                        st.caption(f"Design ID: `{alt['design_id']}`")
-                else:
-                    # Show raw response for debugging
-                    st.warning("No edit URL returned.")
-                    st.json(alt)
+        for alt in mcp_alts:
+            st.markdown(f"**{alt['version']}** — _{alt['style']}_")
+            alt_png_paths = alt.get("png_paths", [])
+            if alt_png_paths:
+                alt_img_cols = st.columns(min(len(alt_png_paths), 3))
+                for j, p in enumerate(alt_png_paths):
+                    col = alt_img_cols[j % len(alt_img_cols)]
+                    col.image(p, caption=f"Slide {j + 1}", use_container_width=True)
+                # ZIP download for this alternative
+                import zipfile as _zf
+                alt_zip = io.BytesIO()
+                with _zf.ZipFile(alt_zip, "w", _zf.ZIP_DEFLATED) as zf:
+                    for p in alt_png_paths:
+                        zf.write(p, os.path.basename(p))
+                alt_zip.seek(0)
+                st.download_button(
+                    label=f"Download {alt['version']} (ZIP)",
+                    data=alt_zip,
+                    file_name=f"{alt['version'].replace(' ', '_').lower()}.zip",
+                    mime="application/zip",
+                    key=f"alt_zip_{alt['version']}",
+                    use_container_width=True,
+                )
+            st.divider()
         st.caption(
-            "Each alternative uses a different visual style. "
-            "Open in Canva to further customize, or compare side-by-side."
+            "Each alternative uses a different color scheme and layout. "
+            "Compare side-by-side to pick the best one."
         )
 
     # ── Back to edit ───────────────────────────────────────────────────────
