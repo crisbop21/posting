@@ -79,24 +79,70 @@ def _ensure_unique_tool_use_ids(messages: list) -> None:
     conversation history is reused, or the SDK leaks serialised state,
     IDs can collide.  This function detects duplicates and replaces them
     with fresh UUIDs in the ``toolu_`` format the API expects.
+
+    Handles both plain dicts and Anthropic SDK content-block objects.
+    When a tool_use ID is regenerated, updates any corresponding
+    tool_result blocks that reference the old ID.
     """
     seen: set[str] = set()
+    # Map old_id -> new_id so we can fix tool_result references
+    remap: dict[str, str] = {}
 
     for msg in messages:
-        content = msg.get("content") if isinstance(msg, dict) else None
+        content = _get_content(msg)
         if not isinstance(content, list):
             continue
 
         for block in content:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") != "tool_use" or "id" not in block:
+            block_type = _block_attr(block, "type")
+            if block_type != "tool_use":
                 continue
 
-            tool_id = block["id"]
+            tool_id = _block_attr(block, "id")
+            if not tool_id:
+                continue
+
             if tool_id in seen:
-                block["id"] = _fresh_tool_id()
-            seen.add(block["id"])
+                new_id = _fresh_tool_id()
+                remap[tool_id] = new_id
+                _set_block_attr(block, "id", new_id)
+                tool_id = new_id
+            seen.add(tool_id)
+
+    # Fix tool_result references that point to remapped IDs
+    if remap:
+        for msg in messages:
+            content = _get_content(msg)
+            if not isinstance(content, list):
+                continue
+            for block in content:
+                if _block_attr(block, "type") != "tool_result":
+                    continue
+                ref = _block_attr(block, "tool_use_id")
+                if ref in remap:
+                    _set_block_attr(block, "tool_use_id", remap[ref])
+
+
+def _get_content(msg) -> list | None:
+    """Extract the content list from a message (dict or SDK object)."""
+    if isinstance(msg, dict):
+        return msg.get("content")
+    return getattr(msg, "content", None)
+
+
+def _block_attr(block, attr: str):
+    """Read an attribute from a content block (dict or SDK object)."""
+    if isinstance(block, dict):
+        return block.get(attr)
+    return getattr(block, attr, None)
+
+
+def _set_block_attr(block, attr: str, value) -> None:
+    """Set an attribute on a content block (dict or SDK object)."""
+    if isinstance(block, dict):
+        block[attr] = value
+    else:
+        setattr(block, attr, value)
 
 
 def _fresh_tool_id() -> str:
