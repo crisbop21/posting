@@ -1,7 +1,7 @@
-"""Generate AI images for slides using Google Imagen 4 or OpenAI DALL-E 3.
+"""Generate AI images for slides using Gemini Flash or OpenAI DALL-E 3.
 
 Supports two providers (auto-detected from environment variables):
-  - Google Imagen 4: Free tier via Google AI Studio API key.
+  - Google Gemini: Free via Google AI Studio API key (gemini-2.5-flash-image).
   - OpenAI DALL-E 3: Paid, requires OpenAI API key.
 
 Each slide gets a cinematic, finance-themed image generated from its content.
@@ -43,16 +43,17 @@ def _get_provider_and_key() -> tuple[str, str]:
     )
 
 
-# ── Google Imagen 4 ──────────────────────────────────────────────────────────
+# ── Google Gemini Image Generation ────────────────────────────────────────────
 
 
-def _generate_imagen(prompt: str, aspect: str, api_key: str) -> bytes:
-    """Generate an image using Google Imagen 4 via the Gemini API.
+def _generate_gemini(prompt: str, api_key: str) -> bytes:
+    """Generate an image using Gemini's native image generation.
 
-    Free tier available with a Google AI Studio API key.
+    Uses gemini-2.5-flash-image via the generateContent endpoint.
+    Free with a Google AI Studio API key.
     Returns raw PNG bytes.
     """
-    url = "https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
 
     resp = requests.post(
         url,
@@ -61,36 +62,42 @@ def _generate_imagen(prompt: str, aspect: str, api_key: str) -> bytes:
             "Content-Type": "application/json",
         },
         json={
-            "instances": [{"prompt": prompt}],
-            "parameters": {
-                "sampleCount": 1,
-                "aspectRatio": aspect,
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
             },
         },
-        timeout=90,
+        timeout=120,
     )
 
     if resp.status_code == 400:
         error_msg = resp.json().get("error", {}).get("message", resp.text)
         raise RuntimeError(
-            f"Imagen rejected the prompt (safety filter or invalid request): {error_msg}"
+            f"Gemini rejected the prompt (safety filter or invalid request): {error_msg}"
         )
     resp.raise_for_status()
 
     result = resp.json()
-    predictions = result.get("predictions", [])
-    if not predictions:
+
+    # Extract inline image data from response
+    candidates = result.get("candidates", [])
+    if not candidates:
         raise RuntimeError(
-            "Imagen returned no predictions. The prompt may have been filtered."
+            "Gemini returned no candidates. The prompt may have been filtered."
         )
 
-    image_b64 = predictions[0].get("bytesBase64Encoded", "")
-    if not image_b64:
-        raise RuntimeError(
-            "Imagen prediction succeeded but contained no image data."
-        )
+    parts = candidates[0].get("content", {}).get("parts", [])
+    for part in parts:
+        inline_data = part.get("inlineData", {})
+        if inline_data.get("mimeType", "").startswith("image/"):
+            image_b64 = inline_data.get("data", "")
+            if image_b64:
+                return base64.b64decode(image_b64)
 
-    return base64.b64decode(image_b64)
+    raise RuntimeError(
+        "Gemini response did not contain any image data. "
+        "Try a different prompt."
+    )
 
 
 # ── OpenAI DALL-E 3 ──────────────────────────────────────────────────────────
@@ -151,7 +158,7 @@ def generate_image(
     """Generate an image using the configured provider.
 
     Auto-detects provider from environment variables:
-      - GOOGLE_AI_API_KEY → Google Imagen 4 (free)
+      - GOOGLE_AI_API_KEY → Gemini Flash image generation (free)
       - OPENAI_API_KEY    → OpenAI DALL-E 3 (paid)
 
     Returns raw image bytes (PNG).
@@ -159,13 +166,15 @@ def generate_image(
     provider, api_key = _get_provider_and_key()
 
     if provider == "google":
+        # Enhance prompt with aspect ratio hint for Gemini
         if width < height:
-            aspect = "9:16"
+            aspect_hint = "vertical portrait orientation (9:16 aspect ratio)"
         elif width > height:
-            aspect = "16:9"
+            aspect_hint = "horizontal landscape orientation (16:9 aspect ratio)"
         else:
-            aspect = "1:1"
-        return _generate_imagen(prompt, aspect, api_key)
+            aspect_hint = "square orientation (1:1 aspect ratio)"
+        enhanced_prompt = f"{prompt}. Generate this image in {aspect_hint}."
+        return _generate_gemini(enhanced_prompt, api_key)
     else:
         return _generate_dalle(prompt, width, height, api_key)
 
