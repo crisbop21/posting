@@ -1084,6 +1084,64 @@ def strip_claim_tags(slides: list[dict]) -> list[dict]:
     ]
 
 
+def generate_video_script(
+    slides: list[dict],
+    topic: str = "",
+    angle: str = "",
+) -> list[str]:
+    """Generate a natural voiceover script for each slide.
+
+    Returns a list of strings, one narration per slide. The narration is
+    conversational, 2-3 sentences, and designed to be read aloud by a TTS
+    engine while the viewer looks at the slide.
+    """
+    slide_text = json.dumps(slides, indent=2)
+    prompt = f"""You are a professional voiceover scriptwriter for short-form finance videos on TikTok and Instagram.
+
+Topic: {topic or 'finance'}
+Angle: {angle or 'general'}
+
+Here are the slides for the video:
+{slide_text}
+
+Write a natural, conversational voiceover script for EACH slide. Rules:
+
+1. Each slide's narration should be 2-3 sentences (15-30 words).
+2. The tone is confident, knowledgeable, and slightly urgent — like a friend who works in finance giving you insider info.
+3. Do NOT just read the slide text verbatim. EXPAND on it — add context, explain why it matters, connect the dots.
+4. Slide 1 (hook): Start with a bold, attention-grabbing opening. No "hey guys" or "welcome to".
+5. Last slide (CTA): End with a natural call to action that drives engagement (comment, follow, share).
+6. Use short sentences. No jargon. Speak like a human, not a textbook.
+7. Include natural speech patterns: brief pauses (use "..."), rhetorical questions, emphasis words.
+8. The script should flow as one continuous narrative across all slides.
+
+Return your response as a JSON array of strings, one per slide:
+["script for slide 1", "script for slide 2", ...]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    result = _parse_json(text)
+
+    if isinstance(result, list):
+        # Ensure we have exactly one script per slide
+        while len(result) < len(slides):
+            result.append(result[-1] if result else "")
+        return result[: len(slides)]
+
+    # Fallback: generate basic scripts from slide text
+    return [
+        f"{s.get('title', '')}. {s.get('body', '')}"
+        for s in slides
+    ]
+
+
 def generate_tiktok_metadata(
     slides: list[dict],
     topic: str,

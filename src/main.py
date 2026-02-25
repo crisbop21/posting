@@ -23,6 +23,7 @@ from src.content.generator import (
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
+from src.slides.video_builder import build_video_from_slides
 
 
 def load_config(path: str = "config.yaml") -> dict:
@@ -257,6 +258,30 @@ def run(config_path: str = "config.yaml") -> None:
         print(f"    Footer: {slide.get('footer', '')}")
 
     print(f"\nDone! Open {filepath} to review your slides.")
+
+    # ── Build narrated video (if ElevenLabs key is set) ──────────────────
+    video_cfg = config.get("video", {})
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        print("\nBuilding narrated video...")
+        try:
+            video_result = build_video_from_slides(
+                slides=slides,
+                colors=colors,
+                topic=chosen_topic["title"],
+                angle=angle,
+                aspect_ratio=aspect_ratio,
+                output_dir=output_dir,
+                voice_id=video_cfg.get("voice_id", "pNInz6obpgDQGcFmaJgB"),
+            )
+            print(f"  Video saved to: {video_result['video_path']}")
+            print("\n── Voiceover Scripts ──")
+            for i, script in enumerate(video_result["scripts"], 1):
+                print(f"  Slide {i}: {script}")
+        except Exception as exc:
+            print(f"  Video generation failed: {exc}")
+            print("  (Slides were exported successfully as PPTX above)")
+    else:
+        print("\nTip: Set ELEVENLABS_API_KEY to auto-generate narrated video.")
 
 
 def main():
