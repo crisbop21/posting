@@ -94,14 +94,24 @@ def _get_default_elevenlabs_key() -> str:
     return key
 
 
-def _get_default_replicate_token() -> str:
-    token = os.environ.get("REPLICATE_API_TOKEN", "")
-    if not token:
+def _get_default_google_ai_key() -> str:
+    key = os.environ.get("GOOGLE_AI_API_KEY", "")
+    if not key:
         try:
-            token = st.secrets.get("REPLICATE_API_TOKEN", "")
+            key = st.secrets.get("GOOGLE_AI_API_KEY", "")
         except FileNotFoundError:
             pass
-    return token
+    return key
+
+
+def _get_default_openai_key() -> str:
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if not key:
+        try:
+            key = st.secrets.get("OPENAI_API_KEY", "")
+        except FileNotFoundError:
+            pass
+    return key
 
 
 with st.sidebar.expander("Integrations", expanded=True):
@@ -127,13 +137,31 @@ with st.sidebar.expander("Integrations", expanded=True):
     )
     video_enabled = bool(elevenlabs_key)
 
-    replicate_token = st.text_input(
-        "Replicate API Token",
-        value=_get_default_replicate_token(),
-        type="password",
-        help="Required for AI-generated slide images (Flux). Get your token at https://replicate.com",
+    st.markdown("**Image Generation**")
+    image_provider = st.selectbox(
+        "AI Image Provider",
+        ["Google Imagen 3 (Free)", "OpenAI DALL-E 3"],
+        index=0,
+        help="Google Imagen 3 is free (~50 images/day). DALL-E 3 requires a paid OpenAI key.",
     )
-    ai_images_enabled = bool(replicate_token)
+
+    google_ai_key = ""
+    openai_img_key = ""
+    if image_provider.startswith("Google"):
+        google_ai_key = st.text_input(
+            "Google AI API Key",
+            value=_get_default_google_ai_key(),
+            type="password",
+            help="Free. Get your key at https://aistudio.google.com/apikey",
+        )
+    else:
+        openai_img_key = st.text_input(
+            "OpenAI API Key",
+            value=_get_default_openai_key(),
+            type="password",
+            help="Paid. Get your key at https://platform.openai.com/api-keys",
+        )
+    ai_images_enabled = bool(google_ai_key or openai_img_key)
 
     canva_cfg = config.get("canva", {})
     canva_client_id = st.text_input(
@@ -1565,7 +1593,7 @@ elif st.session_state.step == 6:
                 st.divider()
 
     # ══════════════════════════════════════════════════════════════════════
-    # TAB: AI Images (Flux-generated backgrounds)
+    # TAB: AI Images (Google Imagen 3 / OpenAI DALL-E 3)
     # ══════════════════════════════════════════════════════════════════════
 
     with studio_tabs[2]:
@@ -1573,20 +1601,26 @@ elif st.session_state.step == 6:
 
         if not ai_images_enabled:
             st.info(
-                "Add your Replicate API Token in the sidebar under Integrations "
-                "to generate cinematic AI background images for each slide."
+                "Add an image generation API key in the sidebar under Integrations "
+                "to generate cinematic AI background images for each slide.\n\n"
+                "**Google Imagen 3** is free (~50 images/day) — get a key at "
+                "[aistudio.google.com/apikey](https://aistudio.google.com/apikey)"
             )
         else:
+            provider_label = "Google Imagen 3" if google_ai_key else "OpenAI DALL-E 3"
             st.caption(
-                "Generate cinematic AI backgrounds using Flux (via Replicate). "
-                "Claude creates visual prompts, Flux generates photorealistic images, "
+                f"Generate cinematic AI backgrounds using {provider_label}. "
+                "Claude creates visual prompts, the AI generates photorealistic images, "
                 "then slide text is composited on top."
             )
 
             live_slides = _get_live_slides()
 
             if st.button("Generate AI Slide Images", type="primary", use_container_width=True, key="gen_ai_imgs"):
-                os.environ["REPLICATE_API_TOKEN"] = replicate_token
+                if google_ai_key:
+                    os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
+                elif openai_img_key:
+                    os.environ["OPENAI_API_KEY"] = openai_img_key
                 _require_api_key()
                 with st.spinner("Generating image prompts and AI images... This may take 30-60s."):
                     try:
@@ -1655,10 +1689,11 @@ elif st.session_state.step == 6:
 
             use_ai_bg = False
             if ai_images_enabled:
+                provider_label = "Google Imagen 3" if google_ai_key else "DALL-E 3"
                 use_ai_bg = st.checkbox(
                     "Use AI-generated background images",
                     value=True,
-                    help="Generate cinematic Flux images as slide backgrounds in the video.",
+                    help=f"Generate cinematic {provider_label} images as slide backgrounds in the video.",
                     key="video_use_ai_bg",
                 )
 
@@ -1667,7 +1702,10 @@ elif st.session_state.step == 6:
             if st.button("Build Narrated Video", type="primary", use_container_width=True, key="build_video"):
                 os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
                 if use_ai_bg:
-                    os.environ["REPLICATE_API_TOKEN"] = replicate_token
+                    if google_ai_key:
+                        os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
+                    elif openai_img_key:
+                        os.environ["OPENAI_API_KEY"] = openai_img_key
                 _require_api_key()
                 with st.spinner("Generating voiceover scripts and building video... This may take a minute."):
                     try:

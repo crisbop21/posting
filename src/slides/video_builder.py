@@ -210,7 +210,7 @@ def build_video_with_ai_images(
 ) -> str:
     """Build a narrated MP4 using AI-generated background images.
 
-    Same as build_video() but uses Flux-generated images composited
+    Same as build_video() but uses AI-generated images composited
     with slide text instead of plain PNG slides.
     """
     mp = _ensure_moviepy()
@@ -290,8 +290,8 @@ def build_video_from_slides(
     video assembly. Use this from the CLI or Streamlit UI.
 
     Args:
-        use_ai_images: If True, generates Flux AI background images per slide.
-            Requires REPLICATE_API_TOKEN to be set.
+        use_ai_images: If True, generates AI background images per slide.
+            Requires GOOGLE_AI_API_KEY or OPENAI_API_KEY to be set.
 
     Returns:
         Dict with 'video_path', 'scripts', and optionally 'image_prompts' keys.
