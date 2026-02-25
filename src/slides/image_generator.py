@@ -11,6 +11,7 @@ The image is then composited with slide text overlay to create the final frame.
 import base64
 import io
 import os
+import time
 from pathlib import Path
 
 import requests
@@ -50,32 +51,41 @@ def _generate_gemini(prompt: str, api_key: str) -> bytes:
     """Generate an image using Gemini's native image generation.
 
     Uses gemini-2.5-flash-image via the generateContent endpoint.
-    Free with a Google AI Studio API key.
+    Free with a Google AI Studio API key.  Retries on 429 rate limits
+    with exponential backoff (up to 3 retries).
     Returns raw PNG bytes.
     """
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
+    max_retries = 3
 
-    resp = requests.post(
-        url,
-        headers={
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        },
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
+    for attempt in range(max_retries + 1):
+        resp = requests.post(
+            url,
+            headers={
+                "x-goog-api-key": api_key,
+                "Content-Type": "application/json",
             },
-        },
-        timeout=120,
-    )
-
-    if resp.status_code == 400:
-        error_msg = resp.json().get("error", {}).get("message", resp.text)
-        raise RuntimeError(
-            f"Gemini rejected the prompt (safety filter or invalid request): {error_msg}"
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseModalities": ["TEXT", "IMAGE"],
+                },
+            },
+            timeout=120,
         )
-    resp.raise_for_status()
+
+        if resp.status_code == 429 and attempt < max_retries:
+            wait = 2 ** (attempt + 1)  # 2s, 4s, 8s
+            time.sleep(wait)
+            continue
+
+        if resp.status_code == 400:
+            error_msg = resp.json().get("error", {}).get("message", resp.text)
+            raise RuntimeError(
+                f"Gemini rejected the prompt (safety filter or invalid request): {error_msg}"
+            )
+        resp.raise_for_status()
+        break
 
     result = resp.json()
 
@@ -365,6 +375,10 @@ def generate_slide_images(
     paths = []
 
     for i, (slide, prompt) in enumerate(zip(slides, image_prompts)):
+        # Small delay between requests to avoid rate limits
+        if i > 0:
+            time.sleep(2)
+
         # Generate AI background
         img_bytes = generate_image(
             prompt=prompt,
