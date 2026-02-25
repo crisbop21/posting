@@ -195,6 +195,84 @@ def build_video(
     return output_path
 
 
+def build_video_with_ai_images(
+    slides: list[dict],
+    scripts: list[str],
+    image_prompts: list[str],
+    colors: dict,
+    aspect_ratio: str = "9:16",
+    output_dir: str = "./output",
+    handle: str = "@cristian.bojaca",
+    voice_id: str = "pNInz6obpgDQGcFmaJgB",
+    crossfade: float = 0.3,
+    min_duration: float = 4.0,
+    padding: float = 0.8,
+) -> str:
+    """Build a narrated MP4 using AI-generated background images.
+
+    Same as build_video() but uses Flux-generated images composited
+    with slide text instead of plain PNG slides.
+    """
+    mp = _ensure_moviepy()
+    from moviepy import (
+        AudioFileClip,
+        ImageClip,
+        concatenate_videoclips,
+    )
+    from src.slides.image_generator import generate_slide_images
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Step 1: Generate AI background images composited with slide text
+    png_paths = generate_slide_images(
+        slides=slides,
+        image_prompts=image_prompts,
+        colors=colors,
+        aspect_ratio=aspect_ratio,
+        output_dir=output_dir,
+        handle=handle,
+    )
+
+    # Step 2: Synthesize audio per slide and assemble
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        slide_clips = []
+
+        for i, (png_path, script) in enumerate(zip(png_paths, scripts)):
+            audio_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
+            audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
+            with open(audio_path, "wb") as f:
+                f.write(audio_bytes)
+
+            audio_clip = AudioFileClip(audio_path)
+            duration = max(audio_clip.duration + padding, min_duration)
+
+            img_clip = (
+                ImageClip(png_path)
+                .with_duration(duration)
+                .with_audio(audio_clip)
+            )
+            slide_clips.append(img_clip)
+
+        if crossfade > 0 and len(slide_clips) > 1:
+            final = concatenate_videoclips(
+                slide_clips, method="compose", padding=-crossfade,
+            )
+        else:
+            final = concatenate_videoclips(slide_clips, method="compose")
+
+        output_path = os.path.join(output_dir, "narrated_ai_slides.mp4")
+        final.write_videofile(
+            output_path, fps=24, codec="libx264",
+            audio_codec="aac", logger="bar",
+        )
+
+        for clip in slide_clips:
+            clip.close()
+        final.close()
+
+    return output_path
+
+
 def build_video_from_slides(
     slides: list[dict],
     colors: dict,
@@ -204,29 +282,58 @@ def build_video_from_slides(
     output_dir: str = "./output",
     handle: str = "@cristian.bojaca",
     voice_id: str = "pNInz6obpgDQGcFmaJgB",
+    use_ai_images: bool = False,
 ) -> dict:
-    """Full pipeline: generate script → synthesize audio → build video.
+    """Full pipeline: generate script → (optionally AI images) → audio → video.
 
     This is the main entry point that combines script generation with
     video assembly. Use this from the CLI or Streamlit UI.
 
+    Args:
+        use_ai_images: If True, generates Flux AI background images per slide.
+            Requires REPLICATE_API_TOKEN to be set.
+
     Returns:
-        Dict with 'video_path' and 'scripts' keys.
+        Dict with 'video_path', 'scripts', and optionally 'image_prompts' keys.
     """
     from src.content.generator import generate_video_script
 
     # Generate voiceover scripts
     scripts = generate_video_script(slides=slides, topic=topic, angle=angle)
 
-    # Build the video
-    video_path = build_video(
-        slides=slides,
-        scripts=scripts,
-        colors=colors,
-        aspect_ratio=aspect_ratio,
-        output_dir=output_dir,
-        handle=handle,
-        voice_id=voice_id,
-    )
+    result = {"scripts": scripts}
 
-    return {"video_path": video_path, "scripts": scripts}
+    if use_ai_images:
+        from src.content.generator import generate_image_prompts
+
+        # Generate image prompts
+        image_prompts = generate_image_prompts(
+            slides=slides, topic=topic, angle=angle,
+        )
+        result["image_prompts"] = image_prompts
+
+        # Build video with AI images
+        video_path = build_video_with_ai_images(
+            slides=slides,
+            scripts=scripts,
+            image_prompts=image_prompts,
+            colors=colors,
+            aspect_ratio=aspect_ratio,
+            output_dir=output_dir,
+            handle=handle,
+            voice_id=voice_id,
+        )
+    else:
+        # Build video with standard PNG slides
+        video_path = build_video(
+            slides=slides,
+            scripts=scripts,
+            colors=colors,
+            aspect_ratio=aspect_ratio,
+            output_dir=output_dir,
+            handle=handle,
+            voice_id=voice_id,
+        )
+
+    result["video_path"] = video_path
+    return result
