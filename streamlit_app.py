@@ -124,6 +124,16 @@ def _get_default_pexels_key() -> str:
     return key
 
 
+def _get_default_pixabay_key() -> str:
+    key = os.environ.get("PIXABAY_API_KEY", "")
+    if not key:
+        try:
+            key = st.secrets.get("PIXABAY_API_KEY", "")
+        except FileNotFoundError:
+            pass
+    return key
+
+
 with st.sidebar.expander("Integrations", expanded=True):
     api_key = st.text_input(
         "Anthropic API Key",
@@ -175,11 +185,18 @@ with st.sidebar.expander("Integrations", expanded=True):
 
     st.markdown("**Web Image Search**")
     pexels_key = st.text_input(
-        "Pexels API Key (optional)",
+        "Pexels API Key",
         value=_get_default_pexels_key(),
         type="password",
-        help="Free. Get your key at https://www.pexels.com/api/ — or leave blank to use DuckDuckGo.",
+        help="Free. Get your key at https://www.pexels.com/api/",
     )
+    pixabay_key = st.text_input(
+        "Pixabay API Key",
+        value=_get_default_pixabay_key(),
+        type="password",
+        help="Free. Get your key at https://pixabay.com/api/docs/",
+    )
+    web_images_enabled = bool(pexels_key or pixabay_key)
 
     canva_cfg = config.get("canva", {})
     canva_client_id = st.text_input(
@@ -1713,14 +1730,20 @@ elif st.session_state.step == 6:
             )
 
             # Image background options
+            bg_options = ["Plain slides"]
+            if web_images_enabled:
+                bg_options.append("Web image search")
+            if ai_images_enabled:
+                bg_options.append("AI-generated images")
+
             bg_option = st.radio(
                 "Slide backgrounds",
-                options=["Plain slides", "Web image search", "AI-generated images"],
+                options=bg_options,
                 index=0,
                 horizontal=True,
                 help=(
                     "**Plain slides**: Standard colored slides. "
-                    "**Web image search**: Search the web for relevant photos (Pexels or DuckDuckGo). "
+                    "**Web image search**: Search Pexels/Pixabay for relevant photos (free API key needed). "
                     "**AI-generated**: Generate cinematic images with AI (requires API key)."
                 ),
                 key="video_bg_option",
@@ -1729,9 +1752,11 @@ elif st.session_state.step == 6:
             use_web_bg = bg_option == "Web image search"
             use_ai_bg = bg_option == "AI-generated images"
 
-            if use_ai_bg and not ai_images_enabled:
-                st.warning("AI image generation requires a Google AI or OpenAI API key in the sidebar.")
-                use_ai_bg = False
+            if not web_images_enabled and not ai_images_enabled:
+                st.info(
+                    "Want image backgrounds? Add a **Pexels** or **Pixabay** API key "
+                    "in the sidebar (both are free, no credit card)."
+                )
 
             live_slides = _get_live_slides()
 
@@ -1744,8 +1769,11 @@ elif st.session_state.step == 6:
                     elif openai_img_key:
                         os.environ["OPENAI_API_KEY"] = openai_img_key
                         os.environ.pop("GOOGLE_AI_API_KEY", None)
-                if use_web_bg and pexels_key:
-                    os.environ["PEXELS_API_KEY"] = pexels_key
+                if use_web_bg:
+                    if pexels_key:
+                        os.environ["PEXELS_API_KEY"] = pexels_key
+                    if pixabay_key:
+                        os.environ["PIXABAY_API_KEY"] = pixabay_key
                 _require_api_key()
 
                 spinner_msg = "Generating voiceover scripts and building video..."

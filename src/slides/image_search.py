@@ -1,8 +1,10 @@
 """Search the web for images related to video script content.
 
-Supports two providers (auto-detected from environment variables):
+Supports two free providers (auto-detected from environment variables):
   - Pexels API: Free, high-quality stock photos. Get a key at https://www.pexels.com/api/
-  - DuckDuckGo: No API key needed, fallback option.
+  - Pixabay API: Free, high-quality stock photos. Get a key at https://pixabay.com/api/docs/
+
+Both are genuinely free (no credit card). Set at least one key.
 
 Usage:
     from src.slides.image_search import search_and_download_images
@@ -16,7 +18,6 @@ Usage:
 
 import io
 import os
-import re
 import time
 from typing import Optional
 
@@ -30,6 +31,23 @@ from PIL import Image
 def _get_pexels_key() -> Optional[str]:
     """Return Pexels API key if set, else None."""
     return os.environ.get("PEXELS_API_KEY", "").strip() or None
+
+
+def _get_pixabay_key() -> Optional[str]:
+    """Return Pixabay API key if set, else None."""
+    return os.environ.get("PIXABAY_API_KEY", "").strip() or None
+
+
+def get_available_provider() -> Optional[str]:
+    """Return the name of the first available image search provider, or None.
+
+    Used by the UI to check if web image search is configured.
+    """
+    if _get_pexels_key():
+        return "Pexels"
+    if _get_pixabay_key():
+        return "Pixabay"
+    return None
 
 
 # ── Pexels API ────────────────────────────────────────────────────────────────
@@ -50,7 +68,7 @@ def _search_pexels(
         orientation: 'portrait', 'landscape', or 'square'.
 
     Returns:
-        List of dicts with keys: url, width, height, photographer, src.
+        List of dicts with keys: url, width, height, photographer, source.
     """
     resp = requests.get(
         "https://api.pexels.com/v1/search",
@@ -78,67 +96,56 @@ def _search_pexels(
     return results
 
 
-# ── DuckDuckGo Image Search ──────────────────────────────────────────────────
+# ── Pixabay API ───────────────────────────────────────────────────────────────
 
 
-def _search_duckduckgo(
+def _search_pixabay(
     query: str,
+    api_key: str,
     count: int = 5,
+    orientation: str = "vertical",
 ) -> list[dict]:
-    """Search DuckDuckGo for images matching the query.
+    """Search Pixabay for photos matching the query.
 
-    Uses the DDG image search API (no key required).
+    Args:
+        query: Search term.
+        api_key: Pixabay API key.
+        count: Number of results to request.
+        orientation: 'vertical', 'horizontal', or 'all'.
 
     Returns:
         List of dicts with keys: url, width, height, source.
     """
-    # First get the vqd token
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-    })
+    # Map Pexels-style orientation to Pixabay-style
+    orientation_map = {"portrait": "vertical", "landscape": "horizontal", "square": "all"}
+    pixabay_orientation = orientation_map.get(orientation, orientation)
 
-    token_resp = session.get(
-        "https://duckduckgo.com/",
-        params={"q": query},
-        timeout=10,
-    )
-    vqd_match = re.search(r"vqd=['\"]([^'\"]+)['\"]", token_resp.text)
-    if not vqd_match:
-        # Try alternate pattern
-        vqd_match = re.search(r"vqd=(\d+-\d+)", token_resp.text)
-    if not vqd_match:
-        return []
-
-    vqd = vqd_match.group(1)
-
-    # Search for images
-    resp = session.get(
-        "https://duckduckgo.com/i.js",
+    resp = requests.get(
+        "https://pixabay.com/api/",
         params={
-            "l": "us-en",
-            "o": "json",
+            "key": api_key,
             "q": query,
-            "vqd": vqd,
-            "f": ",,,,,",
-            "p": "1",
+            "per_page": count,
+            "image_type": "photo",
+            "orientation": pixabay_orientation,
+            "safesearch": "true",
+            "min_width": 800,
+            "min_height": 600,
         },
         timeout=15,
     )
-
-    if resp.status_code != 200:
-        return []
-
+    resp.raise_for_status()
     data = resp.json()
+
     results = []
-    for item in data.get("results", [])[:count]:
+    for hit in data.get("hits", []):
         results.append({
-            "url": item.get("image", ""),
-            "width": item.get("width", 0),
-            "height": item.get("height", 0),
-            "source": "duckduckgo",
+            "url": hit.get("largeImageURL") or hit.get("webformatURL", ""),
+            "width": hit.get("imageWidth", 0),
+            "height": hit.get("imageHeight", 0),
+            "source": "pixabay",
         })
-    return [r for r in results if r["url"]]
+    return results
 
 
 # ── Image Download ────────────────────────────────────────────────────────────
@@ -180,18 +187,18 @@ def search_images(
 ) -> list[dict]:
     """Search for images using the best available provider.
 
-    Tries Pexels first (if PEXELS_API_KEY is set), then falls back
-    to DuckDuckGo image search (no key needed).
+    Tries Pexels first, then Pixabay.
 
     Args:
         query: Search term.
         count: Number of results to request.
-        orientation: 'portrait', 'landscape', or 'square' (Pexels only).
+        orientation: 'portrait', 'landscape', or 'square'.
 
     Returns:
         List of dicts with keys: url, width, height, source.
     """
     pexels_key = _get_pexels_key()
+    pixabay_key = _get_pixabay_key()
 
     if pexels_key:
         try:
@@ -201,12 +208,15 @@ def search_images(
         except Exception as e:
             print(f"[image_search] Pexels search failed: {e}")
 
-    # Fallback to DuckDuckGo
-    try:
-        return _search_duckduckgo(query, count)
-    except Exception as e:
-        print(f"[image_search] DuckDuckGo search failed: {e}")
-        return []
+    if pixabay_key:
+        try:
+            results = _search_pixabay(query, pixabay_key, count, orientation)
+            if results:
+                return results
+        except Exception as e:
+            print(f"[image_search] Pixabay search failed: {e}")
+
+    return []
 
 
 def search_and_download_images(
@@ -229,11 +239,18 @@ def search_and_download_images(
     Returns:
         List of (query, Image or None) tuples. One per query.
     """
-    results = []
+    provider = get_available_provider()
+    if not provider:
+        print("[image_search] No image search provider configured. "
+              "Set PEXELS_API_KEY or PIXABAY_API_KEY.")
+        return [(q, None) for q in queries]
 
+    print(f"[image_search] Using {provider} for image search")
+
+    results = []
     for i, query in enumerate(queries):
         if i > 0:
-            time.sleep(1)  # Rate limiting between queries
+            time.sleep(0.5)  # Rate limiting between queries
 
         search_results = search_images(query, count=per_query, orientation=orientation)
 
@@ -245,7 +262,11 @@ def search_and_download_images(
                 img = img.convert("RGBA")
                 img = img.resize(target_size, Image.Resampling.LANCZOS)
                 downloaded = img
+                print(f"[image_search] Slide {i + 1}: found image for '{query}'")
                 break
+
+        if downloaded is None:
+            print(f"[image_search] Slide {i + 1}: no image found for '{query}'")
 
         results.append((query, downloaded))
 
