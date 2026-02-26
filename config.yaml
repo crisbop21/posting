@@ -9,12 +9,15 @@ slides:
   # Slide dimensions (16:9 for social media stories, use 9:16 for vertical)
   aspect_ratio: "9:16"
   # Color scheme
+  # Color palette preset: premium_gold, neon_finance, money_green, electric
+  # Or set custom colors below (overrides preset)
+  palette: "premium_gold"
   colors:
-    background: "#0D1117"
-    title: "#FFFFFF"
-    body: "#C9D1D9"
-    accent: "#58A6FF"
-    highlight: "#F0883E"
+    background: "#0D0D15"
+    title: "#F0F0F0"
+    body: "#C0C0D0"
+    accent: "#F7B731"
+    highlight: "#FF5757"
 
 # Research preferences
 research:
@@ -65,6 +68,9 @@ video:
   padding: 0.8
   # Use AI-generated background images (requires REPLICATE_API_TOKEN)
   ai_images: false
+  # Ken Burns effect: animate background images with zoom/pan motion
+  # per slide role (hook=zoom-in, context=pan, payoff=zoom-out, cta=drift)
+  ken_burns: true
 
 # AI image generation (optional, requires Replicate API token)
 # Uses Flux Schnell via Replicate — ~$0.003 per image, ~2-4s per generation

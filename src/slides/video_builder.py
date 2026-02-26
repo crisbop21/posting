@@ -5,9 +5,13 @@ Pipeline:
   2. Synthesize audio per slide (via ElevenLabs)
   3. Render PNG slides as video frames with audio overlay
   4. Combine into a single MP4 with crossfade transitions
+
+When web-searched images are used, the background is animated with
+role-based Ken Burns motion (zoom/pan) to make the video feel produced.
 """
 
 import io
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -93,6 +97,112 @@ def _ensure_moviepy():
             "moviepy is required for video generation. "
             "Install it with: pip install moviepy"
         )
+
+
+# ── Ken Burns Motion ─────────────────────────────────────────────────────────
+
+# Role → motion type mapping.
+# Each slide role gets a distinct camera movement to match its emotional beat.
+ROLE_MOTION = {
+    "hook": "zoom_in",       # Draws viewer in, creates urgency
+    "context": "pan_right",  # Exploration feel, reveals information
+    "payoff": "zoom_out",    # Pull-back reveal moment
+    "cta": "drift",          # Very subtle, keeps focus on text
+}
+
+
+def _make_kenburns_clip(
+    treated_bg,
+    overlay_rgba,
+    target_w: int,
+    target_h: int,
+    duration: float,
+    motion: str = "zoom_in",
+):
+    """Create an animated video clip with Ken Burns motion on the background.
+
+    Composites a static text overlay on top of a slowly-moving background
+    to make still images feel alive in video.
+
+    Args:
+        treated_bg: PIL Image — oversized background (blurred + gradient).
+        overlay_rgba: PIL Image — RGBA overlay at target size (text, frame, fg).
+        target_w: Output frame width.
+        target_h: Output frame height.
+        duration: Clip duration in seconds.
+        motion: 'zoom_in', 'zoom_out', 'pan_right', 'pan_left', or 'drift'.
+    """
+    import numpy as np
+    from moviepy import VideoClip
+    from PIL import Image
+
+    bg_array = np.array(treated_bg.convert("RGB"))
+    src_h, src_w = bg_array.shape[:2]
+
+    # Precompute overlay arrays for fast per-frame compositing
+    ov_array = np.array(overlay_rgba.convert("RGBA"))
+    alpha = ov_array[:, :, 3:4].astype(np.float32) / 255.0
+    ov_rgb = ov_array[:, :, :3].astype(np.float32)
+
+    def make_frame(t):
+        p = t / duration if duration > 0 else 0
+        # Smooth ease in-out via cosine interpolation
+        p = 0.5 - 0.5 * math.cos(math.pi * p)
+
+        if motion == "zoom_in":
+            # Start wide (show full oversized bg), end tight (target crop)
+            crop_w = int(src_w - (src_w - target_w) * p)
+            crop_h = int(src_h - (src_h - target_h) * p)
+            x = (src_w - crop_w) // 2
+            y = (src_h - crop_h) // 2
+        elif motion == "zoom_out":
+            # Start tight (target crop), end wide (show full bg)
+            crop_w = int(target_w + (src_w - target_w) * p)
+            crop_h = int(target_h + (src_h - target_h) * p)
+            x = (src_w - crop_w) // 2
+            y = (src_h - crop_h) // 2
+        elif motion == "pan_right":
+            crop_w = target_w
+            crop_h = target_h
+            x = int((src_w - crop_w) * p)
+            y = (src_h - crop_h) // 2
+        elif motion == "pan_left":
+            crop_w = target_w
+            crop_h = target_h
+            x = int((src_w - crop_w) * (1 - p))
+            y = (src_h - crop_h) // 2
+        else:  # drift — very subtle zoom for CTA
+            drift_amount = 0.3  # use 30% of available zoom range
+            dp = p * drift_amount
+            crop_w = int(src_w - (src_w - target_w) * dp)
+            crop_h = int(src_h - (src_h - target_h) * dp)
+            x = (src_w - crop_w) // 2
+            y = (src_h - crop_h) // 2
+
+        # Clamp to valid bounds
+        x = max(0, min(x, src_w - crop_w))
+        y = max(0, min(y, src_h - crop_h))
+        crop_w = min(crop_w, src_w - x)
+        crop_h = min(crop_h, src_h - y)
+
+        # Crop background region
+        cropped = bg_array[y:y + crop_h, x:x + crop_w]
+
+        # Resize to target dimensions (bilinear is fast for video frames)
+        bg_frame = np.array(
+            Image.fromarray(cropped).resize(
+                (target_w, target_h), Image.Resampling.BILINEAR
+            )
+        ).astype(np.float32)
+
+        # Composite text overlay on top of animated background
+        result = bg_frame * (1.0 - alpha) + ov_rgb * alpha
+        return result.astype(np.uint8)
+
+    return VideoClip(make_frame, duration=duration).with_fps(24)
+
+
+# ── Static Video Builders ────────────────────────────────────────────────────
 
 
 def build_video(
@@ -273,6 +383,9 @@ def build_video_with_ai_images(
     return output_path
 
 
+# ── Animated Video Builder (Ken Burns) ───────────────────────────────────────
+
+
 def build_video_with_searched_images(
     slides: list[dict],
     scripts: list[str],
@@ -286,6 +399,7 @@ def build_video_with_searched_images(
     min_duration: float = 4.0,
     padding: float = 0.8,
     cutout_queries: list[str] | None = None,
+    ken_burns: bool = True,
 ) -> dict:
     """Build a narrated MP4 using web-searched background images.
 
@@ -294,9 +408,20 @@ def build_video_with_searched_images(
     foreground cutout + branded frame + role-specific text layout).
     Falls back to standard PNG slides when no image is found.
 
+    When ken_burns=True (default), background images are animated with
+    role-based Ken Burns motion (zoom/pan) while text stays static,
+    making the video feel produced rather than a slideshow.
+
+    Motion mapping per role:
+      - hook:    zoom-in  (draws viewer in, urgency)
+      - context: pan      (exploration, alternates L/R)
+      - payoff:  zoom-out (pull-back reveal)
+      - cta:     drift    (subtle, keeps focus on text)
+
     Args:
-        cutout_queries: Optional list of search terms for transparent PNG
-            foreground cutouts (one per slide). If None, skips cutout search.
+        cutout_queries: Optional search terms for transparent PNG foreground
+            cutouts (one per slide). If None, skips cutout search.
+        ken_burns: If True, animate backgrounds with Ken Burns motion.
 
     Returns:
         Dict with 'video_path' and 'search_results' (query -> found/not found).
@@ -308,7 +433,11 @@ def build_video_with_searched_images(
         concatenate_videoclips,
     )
     from src.slides.image_search import search_and_download_images, search_transparent_cutouts
-    from src.slides.image_generator import composite_slide
+    from src.slides.image_generator import (
+        composite_slide,
+        composite_slide_layers,
+        get_slide_role,
+    )
     from src.slides.png_builder import build_pngs
 
     if aspect_ratio == "9:16":
@@ -336,9 +465,8 @@ def build_video_with_searched_images(
         )
         cutout_images = [img for _, img in cutout_results]
 
-    # Step 2: Build slide PNGs with 5-layer compositing pipeline
+    # Step 2: Prepare slide visuals
     search_report = {}
-    png_paths = []
 
     # Build fallback standard PNGs for slides without images
     fallback_pngs = build_pngs(
@@ -349,33 +477,60 @@ def build_video_with_searched_images(
         handle=handle,
     )
 
+    # Each entry is either ("animated", bg, overlay, role) or ("static", png_path)
+    slide_visuals = []
+
     for i, (slide, (query, img)) in enumerate(zip(slides, image_results)):
         foreground = cutout_images[i] if i < len(cutout_images) else None
         if img is not None:
-            # Full 5-layer compositing: blur bg + gradient + foreground + frame + text
-            final = composite_slide(
-                bg_image=img,
-                slide=slide,
-                slide_index=i,
-                total_slides=len(slides),
-                colors=colors,
-                handle=handle,
-                foreground=foreground,
-            )
-            out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
-            final.save(out_path, "PNG")
-            png_paths.append(out_path)
+            if ken_burns:
+                # Separate layers for animated compositing
+                bg_treated, overlay = composite_slide_layers(
+                    bg_image=img,
+                    slide=slide,
+                    slide_index=i,
+                    total_slides=len(slides),
+                    colors=colors,
+                    handle=handle,
+                    foreground=foreground,
+                )
+                role = get_slide_role(i, len(slides))
+                slide_visuals.append(("animated", bg_treated, overlay, role))
+
+                # Save static preview for reference
+                preview = composite_slide(
+                    bg_image=img, slide=slide, slide_index=i,
+                    total_slides=len(slides), colors=colors,
+                    handle=handle, foreground=foreground,
+                )
+                preview.save(
+                    os.path.join(output_dir, f"web_slide_{i + 1:02d}.png"), "PNG",
+                )
+            else:
+                # Static composite (no animation)
+                final = composite_slide(
+                    bg_image=img,
+                    slide=slide,
+                    slide_index=i,
+                    total_slides=len(slides),
+                    colors=colors,
+                    handle=handle,
+                    foreground=foreground,
+                )
+                out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
+                final.save(out_path, "PNG")
+                slide_visuals.append(("static", out_path))
             search_report[query] = "found"
         else:
             # Use fallback standard slide
-            png_paths.append(fallback_pngs[i])
+            slide_visuals.append(("static", fallback_pngs[i]))
             search_report[query] = "not_found"
 
     # Step 3: Synthesize audio and assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
         slide_clips = []
 
-        for i, (png_path, script) in enumerate(zip(png_paths, scripts)):
+        for i, (visual, script) in enumerate(zip(slide_visuals, scripts)):
             audio_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
             audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
             with open(audio_path, "wb") as f:
@@ -384,12 +539,31 @@ def build_video_with_searched_images(
             audio_clip = AudioFileClip(audio_path)
             duration = max(audio_clip.duration + padding, min_duration)
 
-            img_clip = (
-                ImageClip(png_path)
-                .with_duration(duration)
-                .with_audio(audio_clip)
-            )
-            slide_clips.append(img_clip)
+            if visual[0] == "animated":
+                _, bg, overlay, role = visual
+                motion = ROLE_MOTION.get(role, "drift")
+                # Alternate pan direction for consecutive context slides
+                if role == "context" and i % 2 == 1:
+                    motion = "pan_left"
+
+                clip = _make_kenburns_clip(
+                    treated_bg=bg,
+                    overlay_rgba=overlay,
+                    target_w=img_w,
+                    target_h=img_h,
+                    duration=duration,
+                    motion=motion,
+                )
+                clip = clip.with_audio(audio_clip)
+            else:
+                _, png_path = visual
+                clip = (
+                    ImageClip(png_path)
+                    .with_duration(duration)
+                    .with_audio(audio_clip)
+                )
+
+            slide_clips.append(clip)
 
         if crossfade > 0 and len(slide_clips) > 1:
             final_video = concatenate_videoclips(
@@ -422,6 +596,7 @@ def build_video_from_slides(
     voice_id: str = "pNInz6obpgDQGcFmaJgB",
     use_ai_images: bool = False,
     use_web_images: bool = False,
+    ken_burns: bool = True,
 ) -> dict:
     """Full pipeline: generate script → (optionally images) → audio → video.
 
@@ -434,6 +609,8 @@ def build_video_from_slides(
         use_web_images: If True, searches the web for relevant images
             per slide and uses them as backgrounds. Falls back to
             standard slides when no image is found.
+        ken_burns: If True and use_web_images=True, animate backgrounds
+            with Ken Burns zoom/pan motion per slide role.
 
     Returns:
         Dict with 'video_path', 'scripts', and optionally
@@ -455,7 +632,7 @@ def build_video_from_slides(
         )
         result["search_queries"] = search_queries
 
-        # Build video with web-searched images
+        # Build video with web-searched images (+ Ken Burns animation)
         web_result = build_video_with_searched_images(
             slides=slides,
             scripts=scripts,
@@ -465,6 +642,7 @@ def build_video_from_slides(
             output_dir=output_dir,
             handle=handle,
             voice_id=voice_id,
+            ken_burns=ken_burns,
         )
         result["video_path"] = web_result["video_path"]
         result["search_results"] = web_result["search_results"]
