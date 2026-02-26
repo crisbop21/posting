@@ -285,12 +285,18 @@ def build_video_with_searched_images(
     crossfade: float = 0.3,
     min_duration: float = 4.0,
     padding: float = 0.8,
+    cutout_queries: list[str] | None = None,
 ) -> dict:
     """Build a narrated MP4 using web-searched background images.
 
     Searches the web for images matching each query, composites them
-    with slide text, and assembles the final video with voiceover.
+    with slide text using the 5-layer visual pipeline (blur + gradient +
+    foreground cutout + branded frame + role-specific text layout).
     Falls back to standard PNG slides when no image is found.
+
+    Args:
+        cutout_queries: Optional list of search terms for transparent PNG
+            foreground cutouts (one per slide). If None, skips cutout search.
 
     Returns:
         Dict with 'video_path' and 'search_results' (query -> found/not found).
@@ -301,7 +307,7 @@ def build_video_with_searched_images(
         ImageClip,
         concatenate_videoclips,
     )
-    from src.slides.image_search import search_and_download_images
+    from src.slides.image_search import search_and_download_images, search_transparent_cutouts
     from src.slides.image_generator import composite_slide
     from src.slides.png_builder import build_pngs
 
@@ -312,7 +318,7 @@ def build_video_with_searched_images(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Step 1: Search and download images for each slide
+    # Step 1: Search and download background images
     image_results = search_and_download_images(
         queries=search_queries,
         per_query=5,
@@ -320,8 +326,17 @@ def build_video_with_searched_images(
         target_size=(img_w, img_h),
     )
 
-    # Step 2: Build slide PNGs — composite searched images with text,
-    # fall back to standard PNG slides where no image was found
+    # Step 1b: Search for foreground cutouts (optional)
+    cutout_images = [None] * len(slides)
+    if cutout_queries:
+        cutout_results = search_transparent_cutouts(
+            queries=cutout_queries,
+            per_query=8,
+            target_height=int(img_h * 0.45),
+        )
+        cutout_images = [img for _, img in cutout_results]
+
+    # Step 2: Build slide PNGs with 5-layer compositing pipeline
     search_report = {}
     png_paths = []
 
@@ -335,8 +350,9 @@ def build_video_with_searched_images(
     )
 
     for i, (slide, (query, img)) in enumerate(zip(slides, image_results)):
+        foreground = cutout_images[i] if i < len(cutout_images) else None
         if img is not None:
-            # Composite slide text over the searched image
+            # Full 5-layer compositing: blur bg + gradient + foreground + frame + text
             final = composite_slide(
                 bg_image=img,
                 slide=slide,
@@ -344,6 +360,7 @@ def build_video_with_searched_images(
                 total_slides=len(slides),
                 colors=colors,
                 handle=handle,
+                foreground=foreground,
             )
             out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
             final.save(out_path, "PNG")
