@@ -423,6 +423,23 @@ def _draw_branded_frame(
 
 # ── Text Rendering Helpers ───────────────────────────────────────────────────
 
+import re
+
+# Pattern to find numbers, percentages, dollar amounts, multipliers
+_NUMBER_RE = re.compile(
+    r'(\$[\d,.]+(?:\s*(?:trillion|billion|million|thousand|[TBMK]))?\w*'
+    r'|[\d,.]+%'
+    r'|[\d,.]+x'
+    r'|[\d,.]+(?:\s*(?:trillion|billion|million|thousand)))',
+    re.IGNORECASE,
+)
+
+
+def _extract_key_number(text: str) -> str | None:
+    """Pull the first big number/stat from text for standalone callout."""
+    m = _NUMBER_RE.search(text)
+    return m.group(0).strip() if m else None
+
 
 def _draw_shadowed_text(
     draw: ImageDraw.Draw,
@@ -460,6 +477,86 @@ def _draw_highlight_box(
     draw.text(xy, text, font=font, fill=text_color)
 
 
+def _draw_line_with_highlights(
+    draw: ImageDraw.Draw,
+    x: int,
+    y: int,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    default_color: tuple,
+    highlight_color: tuple,
+    shadow_offset: int = 2,
+):
+    """Draw a line of text, coloring numbers/stats in highlight_color."""
+    cursor_x = x
+    parts = _NUMBER_RE.split(text)
+    for part in parts:
+        if not part:
+            continue
+        is_number = bool(_NUMBER_RE.fullmatch(part))
+        color = highlight_color if is_number else default_color
+        # Shadow
+        draw.text((cursor_x + shadow_offset, y + shadow_offset), part, font=font, fill=(0, 0, 0))
+        draw.text((cursor_x, y), part, font=font, fill=color)
+        bbox = font.getbbox(part)
+        cursor_x += bbox[2] - bbox[0]
+
+
+def _draw_big_number_callout(
+    draw: ImageDraw.Draw,
+    w: int,
+    y: int,
+    number_text: str,
+    color: tuple,
+    margin: int,
+):
+    """Render a key stat as a massive standalone callout."""
+    # Size the number to fill ~80% of content width
+    content_w = w - 2 * margin
+    num_size = int(w * 0.18)
+    num_font = _load_font("sans_bold", num_size)
+    num_bbox = num_font.getbbox(number_text)
+    num_tw = num_bbox[2] - num_bbox[0]
+    # Shrink if too wide
+    while num_tw > content_w * 0.85 and num_size > 80:
+        num_size -= 10
+        num_font = _load_font("sans_bold", num_size)
+        num_bbox = num_font.getbbox(number_text)
+        num_tw = num_bbox[2] - num_bbox[0]
+    num_th = num_bbox[3] - num_bbox[1]
+
+    # Center horizontally
+    nx = (w - num_tw) // 2
+    # Shadow
+    draw.text((nx + 4, y + 4), number_text, font=num_font, fill=(0, 0, 0))
+    draw.text((nx, y), number_text, font=num_font, fill=color)
+    return y + num_th + int(w * 0.02)
+
+
+def _draw_decorative_quotes(
+    draw: ImageDraw.Draw,
+    x: int,
+    y: int,
+    w: int,
+    color: tuple,
+):
+    """Draw oversized decorative open-quote marks as a visual anchor."""
+    quote_font = _load_font("serif", int(w * 0.15))
+    draw.text((x, y), "\u201C", font=quote_font, fill=(*color, 80))
+
+
+def _draw_vertical_accent_bar(
+    draw: ImageDraw.Draw,
+    x: int,
+    y_start: int,
+    y_end: int,
+    color: tuple,
+    bar_w: int = 5,
+):
+    """Draw a vertical accent bar along the left edge of content."""
+    draw.rectangle([x, y_start, x + bar_w, y_end], fill=color)
+
+
 # ── Layer 5: Role-Specific Text Layouts ──────────────────────────────────────
 
 
@@ -470,69 +567,106 @@ def _layout_hook(
     w: int,
     h: int,
 ):
-    """Hook slide (slide 1): massive bold text, high-impact, attention-grabbing.
+    """Hook slide (slide 1): maximum impact, fills the frame.
 
-    Large title top-left, accent highlight on first line,
-    body text below with generous spacing.
+    - Title with highlight box on first line
+    - Key stat pulled out as a MASSIVE number
+    - Body text with highlighted numbers
+    - Decorative elements fill dead space
     """
     draw = ImageDraw.Draw(img)
     accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
     highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
 
-    margin = int(w * 0.08)
+    margin = int(w * 0.07)
     content_w = w - 2 * margin
 
     title = slide.get("title", "")
     body = slide.get("body", "")
 
-    # Massive title — aim for 2-3 lines max
-    title_size = int(w * 0.105)
+    # Extract key number from body only — title is already displayed, no need to repeat
+    key_num = _extract_key_number(body)
+
+    # ── Title (top portion) ──
+    title_size = int(w * 0.115)
     title_font = _load_font("sans_bold", title_size)
     title_lines = _wrap_text(title, title_font, content_w)
-    while len(title_lines) > 3 and title_size > 70:
+    while len(title_lines) > 3 and title_size > 72:
         title_size -= 8
         title_font = _load_font("sans_bold", title_size)
         title_lines = _wrap_text(title, title_font, content_w)
 
-    title_y = int(h * 0.12)
-    line_h = int(title_size * 1.3)
+    title_y = int(h * 0.10)
+    line_h = int(title_size * 1.25)
 
-    # First line gets a highlight box
+    # First line: highlight box
     if title_lines:
         _draw_highlight_box(
-            draw,
-            (margin, title_y),
-            title_lines[0],
-            title_font,
+            draw, (margin, title_y), title_lines[0], title_font,
             text_color=(255, 255, 255),
             box_color=(*highlight_c, 220),
-            pad_x=int(w * 0.015),
-            pad_y=int(h * 0.006),
+            pad_x=int(w * 0.018), pad_y=int(h * 0.008),
         )
-        title_y += line_h + int(h * 0.01)
+        title_y += line_h + int(h * 0.012)
 
-    # Remaining title lines — white with shadow
+    # Remaining title lines
     for line in title_lines[1:]:
         _draw_shadowed_text(draw, (margin, title_y), line, title_font, (255, 255, 255), 4)
         title_y += line_h
 
-    # Thick accent bar
-    bar_y = title_y + int(h * 0.02)
-    draw.rectangle(
-        [margin, bar_y, margin + int(content_w * 0.35), bar_y + 6],
-        fill=accent_c,
-    )
+    # ── Key number callout (center of slide) ──
+    if key_num:
+        num_y = title_y + int(h * 0.04)
+        # Decorative line above number
+        line_w_px = int(content_w * 0.3)
+        line_x = (w - line_w_px) // 2
+        draw.rectangle([line_x, num_y, line_x + line_w_px, num_y + 3], fill=accent_c)
+        num_y += int(h * 0.025)
+        num_y = _draw_big_number_callout(draw, w, num_y, key_num, accent_c, margin)
+        # Decorative line below number
+        draw.rectangle([line_x, num_y, line_x + line_w_px, num_y + 3], fill=accent_c)
+        body_start_y = num_y + int(h * 0.035)
+    else:
+        # Thick accent bar
+        bar_y = title_y + int(h * 0.025)
+        draw.rectangle(
+            [margin, bar_y, margin + int(content_w * 0.4), bar_y + 7],
+            fill=accent_c,
+        )
+        body_start_y = bar_y + int(h * 0.04)
 
-    # Body text — larger than other roles
-    body_y = bar_y + int(h * 0.035)
-    body_size = int(w * 0.050)
+    # ── Body text (lower portion) ──
+    body_size = int(w * 0.054)
     body_font = _load_font("sans", body_size)
     body_lines = _wrap_text(body, body_font, content_w)
-    body_line_h = int(body_size * 1.5)
+    body_line_h = int(body_size * 1.55)
 
+    body_y = body_start_y
     for line in body_lines:
-        _draw_shadowed_text(draw, (margin, body_y), line, body_font, (230, 230, 240), 2)
+        _draw_line_with_highlights(
+            draw, margin, body_y, line, body_font,
+            default_color=(230, 230, 240), highlight_color=accent_c,
+            shadow_offset=2,
+        )
         body_y += body_line_h
+
+    # ── Decorative bottom element ──
+    deco_y = max(body_y + int(h * 0.04), int(h * 0.78))
+    # Faded horizontal line
+    draw.rectangle(
+        [margin, deco_y, w - margin, deco_y + 1],
+        fill=(*accent_c, 60),
+    )
+    # Swipe hint
+    swipe_font = _load_font("sans", int(w * 0.030))
+    swipe_text = "SWIPE \u25B6"
+    swipe_bbox = swipe_font.getbbox(swipe_text)
+    swipe_tw = swipe_bbox[2] - swipe_bbox[0]
+    swipe_x = (w - swipe_tw) // 2
+    draw.text(
+        (swipe_x, deco_y + int(h * 0.015)),
+        swipe_text, font=swipe_font, fill=(*accent_c, 160),
+    )
 
 
 def _layout_context(
@@ -542,12 +676,16 @@ def _layout_context(
     w: int,
     h: int,
 ):
-    """Context slide (slides 2-3): clean, left-aligned, evidence-style.
+    """Context slide: evidence-style with highlighted numbers.
 
-    Medium title, thin divider, body text with breathing room.
+    - Bigger title
+    - Vertical accent bar along left edge of body
+    - Numbers in body rendered in accent color
+    - More vertical fill
     """
     draw = ImageDraw.Draw(img)
     accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
     body_c = _hex_to_tuple(colors.get("body", "#C9D1D9"))
 
     margin = int(w * 0.08)
@@ -556,36 +694,65 @@ def _layout_context(
     title = slide.get("title", "")
     body = slide.get("body", "")
 
-    # Medium title
-    title_size = int(w * 0.078)
+    # Extract key number for callout
+    key_num = _extract_key_number(body)
+
+    # ── Title ──
+    title_size = int(w * 0.090)
     title_font = _load_font("sans_bold", title_size)
     title_lines = _wrap_text(title, title_font, content_w)
-    while len(title_lines) > 4 and title_size > 60:
+    while len(title_lines) > 3 and title_size > 64:
         title_size -= 6
         title_font = _load_font("sans_bold", title_size)
         title_lines = _wrap_text(title, title_font, content_w)
 
-    title_y = int(h * 0.18)
-    line_h = int(title_size * 1.3)
+    title_y = int(h * 0.10)
+    line_h = int(title_size * 1.25)
 
     for line in title_lines:
         _draw_shadowed_text(draw, (margin, title_y), line, title_font, (255, 255, 255), 3)
         title_y += line_h
 
-    # Thin divider line
+    # Divider
     div_y = title_y + int(h * 0.015)
-    draw.rectangle([margin, div_y, margin + content_w, div_y + 2], fill=(*accent_c, 120))
+    draw.rectangle([margin, div_y, margin + content_w, div_y + 3], fill=accent_c)
 
-    # Body text
-    body_y = div_y + int(h * 0.025)
-    body_size = int(w * 0.044)
-    body_font = _load_font("serif", body_size)
-    body_lines = _wrap_text(body, body_font, content_w)
+    # ── Key number callout (if found) ──
+    if key_num:
+        num_y = div_y + int(h * 0.03)
+        num_y = _draw_big_number_callout(draw, w, num_y, key_num, highlight_c, margin)
+        body_start_y = num_y + int(h * 0.02)
+    else:
+        body_start_y = div_y + int(h * 0.03)
+
+    # ── Body text with vertical accent bar ──
+    body_indent = int(w * 0.04)
+    body_content_w = content_w - body_indent
+    body_size = int(w * 0.050)
+    body_font = _load_font("sans", body_size)
+    body_lines = _wrap_text(body, body_font, body_content_w)
     body_line_h = int(body_size * 1.55)
 
+    body_y = body_start_y
+    body_top = body_y
     for line in body_lines:
-        _draw_shadowed_text(draw, (margin, body_y), line, body_font, body_c, 2)
+        _draw_line_with_highlights(
+            draw, margin + body_indent, body_y, line, body_font,
+            default_color=body_c, highlight_color=accent_c,
+            shadow_offset=2,
+        )
         body_y += body_line_h
+
+    # Vertical accent bar alongside body text
+    if body_lines:
+        _draw_vertical_accent_bar(
+            draw, margin + int(w * 0.01), body_top - 5, body_y - body_line_h + int(body_size * 1.2),
+            accent_c, bar_w=4,
+        )
+
+    # ── Decorative bottom line ──
+    deco_y = max(body_y + int(h * 0.04), int(h * 0.78))
+    draw.rectangle([margin, deco_y, w - margin, deco_y + 1], fill=(*accent_c, 50))
 
 
 def _layout_payoff(
@@ -595,57 +762,96 @@ def _layout_payoff(
     w: int,
     h: int,
 ):
-    """Payoff slide: visual shift — accent color swap, centered layout.
+    """Payoff slide: the reveal — visual shift, centered, fills the frame.
 
-    Uses the highlight color as dominant for the 'reveal' moment.
+    - Decorative quote marks as texture
+    - Title in highlight color, centered
+    - Key number massive
+    - Body centered with more presence
     """
     draw = ImageDraw.Draw(img)
+    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
     highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
     body_c = _hex_to_tuple(colors.get("body", "#C9D1D9"))
 
-    margin = int(w * 0.10)
+    margin = int(w * 0.09)
     content_w = w - 2 * margin
 
     title = slide.get("title", "")
     body = slide.get("body", "")
 
-    # Title — centered, in highlight color
-    title_size = int(w * 0.088)
+    key_num = _extract_key_number(body) or _extract_key_number(title)
+
+    # ── Decorative oversized quote mark (faded, as texture) ──
+    _draw_decorative_quotes(draw, margin - int(w * 0.02), int(h * 0.05), w, highlight_c)
+
+    # ── Title — centered, in highlight color, BIGGER ──
+    title_size = int(w * 0.098)
     title_font = _load_font("sans_bold", title_size)
     title_lines = _wrap_text(title, title_font, content_w)
-    while len(title_lines) > 4 and title_size > 64:
+    while len(title_lines) > 3 and title_size > 68:
         title_size -= 6
         title_font = _load_font("sans_bold", title_size)
         title_lines = _wrap_text(title, title_font, content_w)
 
-    title_y = int(h * 0.20)
+    title_y = int(h * 0.16)
     line_h = int(title_size * 1.3)
 
     for line in title_lines:
         line_bbox = title_font.getbbox(line)
         line_w = line_bbox[2] - line_bbox[0]
         x = (w - line_w) // 2
-        _draw_shadowed_text(draw, (x, title_y), line, title_font, highlight_c, 3)
+        _draw_shadowed_text(draw, (x, title_y), line, title_font, highlight_c, 4)
         title_y += line_h
 
-    # Centered accent bar
-    bar_w = int(content_w * 0.2)
-    bar_x = (w - bar_w) // 2
-    bar_y = title_y + int(h * 0.02)
-    draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + 5], fill=highlight_c)
+    # ── Key number callout ──
+    if key_num:
+        num_y = title_y + int(h * 0.03)
+        num_y = _draw_big_number_callout(draw, w, num_y, key_num, (255, 255, 255), margin)
+        body_start_y = num_y + int(h * 0.02)
+    else:
+        # Centered accent bar
+        bar_w = int(content_w * 0.25)
+        bar_x = (w - bar_w) // 2
+        bar_y = title_y + int(h * 0.02)
+        draw.rectangle([bar_x, bar_y, bar_x + bar_w, bar_y + 6], fill=highlight_c)
+        body_start_y = bar_y + int(h * 0.04)
 
-    # Body — centered
-    body_y = bar_y + int(h * 0.035)
-    body_size = int(w * 0.044)
-    body_font = _load_font("serif", body_size)
-    body_lines = _wrap_text(body, body_font, content_w)
-    body_line_h = int(body_size * 1.5)
+    # ── Body — centered in a semi-transparent card ──
+    body_size = int(w * 0.050)
+    body_font = _load_font("sans", body_size)
+    body_lines = _wrap_text(body, body_font, int(content_w * 0.9))
+    body_line_h = int(body_size * 1.55)
+
+    body_y = body_start_y
+    body_block_h = len(body_lines) * body_line_h
+    card_pad = int(w * 0.04)
+
+    # Draw card background
+    card_left = margin - card_pad
+    card_top = body_y - card_pad
+    card_right = w - margin + card_pad
+    card_bottom = body_y + body_block_h + card_pad
+    draw.rounded_rectangle(
+        [card_left, card_top, card_right, card_bottom],
+        radius=int(w * 0.02),
+        fill=(0, 0, 0, 80),
+    )
+    # Card left accent edge
+    draw.rectangle(
+        [card_left, card_top, card_left + 5, card_bottom],
+        fill=highlight_c,
+    )
 
     for line in body_lines:
         line_bbox = body_font.getbbox(line)
         line_w = line_bbox[2] - line_bbox[0]
         x = (w - line_w) // 2
-        _draw_shadowed_text(draw, (x, body_y), line, body_font, body_c, 2)
+        _draw_line_with_highlights(
+            draw, x, body_y, line, body_font,
+            default_color=body_c, highlight_color=highlight_c,
+            shadow_offset=2,
+        )
         body_y += body_line_h
 
 
@@ -656,43 +862,59 @@ def _layout_cta(
     w: int,
     h: int,
 ):
-    """CTA slide (last slide): minimal, personal, direct.
+    """CTA slide (last slide): warm, inviting, personal.
 
-    Heavy overlay for clean look. Text vertically centered.
+    - Vertically centered with more presence
+    - Bigger title
+    - Emoji-style arrow pointers
+    - Body text in warm tone
     """
     draw = ImageDraw.Draw(img)
     accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
 
-    margin = int(w * 0.12)
+    margin = int(w * 0.09)
     content_w = w - 2 * margin
 
     title = slide.get("title", "")
     body = slide.get("body", "")
 
-    # Title sizing
-    title_size = int(w * 0.072)
+    # ── Title sizing — bigger than before ──
+    title_size = int(w * 0.088)
     title_font = _load_font("sans_bold", title_size)
     title_lines = _wrap_text(title, title_font, content_w)
-    while len(title_lines) > 3 and title_size > 56:
+    while len(title_lines) > 3 and title_size > 60:
         title_size -= 6
         title_font = _load_font("sans_bold", title_size)
         title_lines = _wrap_text(title, title_font, content_w)
 
-    # Body sizing
-    body_size = int(w * 0.040)
+    # Body sizing — bigger
+    body_size = int(w * 0.048)
     body_font = _load_font("sans", body_size)
     body_lines = _wrap_text(body, body_font, content_w)
 
-    # Vertically center the entire text block
+    # Vertically center but slightly above middle (feels more natural)
     line_h = int(title_size * 1.35)
-    body_line_h = int(body_size * 1.5)
+    body_line_h = int(body_size * 1.6)
     total_text_h = (
         len(title_lines) * line_h
-        + int(h * 0.04)
+        + int(h * 0.06)  # gap between title and body
         + len(body_lines) * body_line_h
     )
-    start_y = (h - total_text_h) // 2
+    start_y = int((h - total_text_h) * 0.42)  # slightly above center
 
+    # ── Decorative top arrows (point down toward title) ──
+    arrow_font = _load_font("sans_bold", int(w * 0.06))
+    arrow_text = "\u25BC  \u25BC  \u25BC"
+    arrow_bbox = arrow_font.getbbox(arrow_text)
+    arrow_tw = arrow_bbox[2] - arrow_bbox[0]
+    arrow_x = (w - arrow_tw) // 2
+    draw.text(
+        (arrow_x, start_y - int(h * 0.06)),
+        arrow_text, font=arrow_font, fill=(*accent_c, 100),
+    )
+
+    # ── Title ──
     title_y = start_y
     for line in title_lines:
         line_bbox = title_font.getbbox(line)
@@ -701,24 +923,34 @@ def _layout_cta(
         _draw_shadowed_text(draw, (x, title_y), line, title_font, (255, 255, 255), 3)
         title_y += line_h
 
-    # Three accent dots instead of a bar
-    dot_y = title_y + int(h * 0.015)
-    dot_r = int(w * 0.006)
-    cx = w // 2
-    for offset in [-20, 0, 20]:
-        draw.ellipse(
-            [cx + offset - dot_r, dot_y - dot_r, cx + offset + dot_r, dot_y + dot_r],
-            fill=accent_c,
-        )
+    # ── Accent bar (wider, more presence) ──
+    bar_w = int(content_w * 0.4)
+    bar_x = (w - bar_w) // 2
+    bar_y = title_y + int(h * 0.015)
+    draw.rounded_rectangle(
+        [bar_x, bar_y, bar_x + bar_w, bar_y + 6],
+        radius=3,
+        fill=highlight_c,
+    )
 
-    # Body — centered
-    body_y = dot_y + int(h * 0.025)
+    # ── Body — centered, warm color ──
+    body_y = bar_y + int(h * 0.04)
     for line in body_lines:
         line_bbox = body_font.getbbox(line)
         line_w = line_bbox[2] - line_bbox[0]
         x = (w - line_w) // 2
-        _draw_shadowed_text(draw, (x, body_y), line, body_font, (200, 200, 210), 2)
+        _draw_shadowed_text(draw, (x, body_y), line, body_font, (220, 220, 230), 2)
         body_y += body_line_h
+
+    # ── Bottom pointer arrows (point up toward body) ──
+    up_arrow_text = "\u25B2  \u25B2  \u25B2"
+    up_bbox = arrow_font.getbbox(up_arrow_text)
+    up_tw = up_bbox[2] - up_bbox[0]
+    up_x = (w - up_tw) // 2
+    draw.text(
+        (up_x, body_y + int(h * 0.03)),
+        up_arrow_text, font=arrow_font, fill=(*highlight_c, 80),
+    )
 
 
 # Layout dispatcher
