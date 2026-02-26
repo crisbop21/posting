@@ -73,6 +73,12 @@ images:
   # or "black-forest-labs/flux-1.1-pro" (best quality, ~$0.04/image)
   model: "black-forest-labs/flux-schnell"
 
+# Web image search (optional, for script-based video backgrounds)
+# Searches Pexels (if API key set) or DuckDuckGo (no key) for relevant photos
+image_search:
+  # Number of search results to try per slide (downloads first that works)
+  results_per_query: 5
+
 # Output
 output:
   directory: "./output"

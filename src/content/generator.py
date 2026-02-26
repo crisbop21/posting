@@ -1084,6 +1084,68 @@ def strip_claim_tags(slides: list[dict]) -> list[dict]:
     ]
 
 
+def generate_image_search_queries(
+    slides: list[dict],
+    scripts: list[str],
+    topic: str = "",
+    angle: str = "",
+) -> list[str]:
+    """Generate web image search queries for each slide.
+
+    Uses the video script and slide content to produce search queries
+    optimized for finding relevant stock/editorial photos on the web.
+
+    Returns a list of search query strings, one per slide.
+    """
+    slide_text = json.dumps(slides, indent=2)
+    scripts_text = json.dumps(scripts, indent=2)
+    prompt = f"""You are an expert visual researcher finding stock photos and editorial images for a short-form finance video.
+
+Topic: {topic or 'finance'}
+Angle: {angle or 'general'}
+
+Here are the slides:
+{slide_text}
+
+Here are the voiceover scripts:
+{scripts_text}
+
+Generate ONE image search query per slide. Each query should:
+
+1. Be optimized for stock photo search engines (Pexels, Unsplash, Google Images)
+2. Describe a real-world scene or concept that matches the slide's content
+3. Use concrete, visual terms — NOT abstract concepts
+4. Be 3-6 words — short and specific
+5. Focus on finance/business imagery: "stock trading floor", "bitcoin gold coin", "wall street building", "person checking stocks phone", "federal reserve building"
+6. Vary across slides — don't repeat the same query
+7. Avoid text-heavy queries — search for SCENES, not facts
+
+Good examples: "stock market bull statue", "cryptocurrency mining farm", "person analyzing charts laptop", "wall street aerial view", "gold bars vault"
+Bad examples: "S&P 500 up 5%", "earnings report Q3", "market crash 2024"
+
+Return your response as a JSON array of strings, one query per slide:
+["query for slide 1", "query for slide 2", ...]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    result = _parse_json(text)
+
+    if isinstance(result, list):
+        while len(result) < len(slides):
+            result.append(f"{topic or 'finance'} business")
+        return result[: len(slides)]
+
+    # Fallback: generic queries
+    return [f"{topic or 'finance'} stock photo" for _ in slides]
+
+
 def generate_image_prompts(
     slides: list[dict],
     topic: str = "",

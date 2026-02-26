@@ -273,6 +273,127 @@ def build_video_with_ai_images(
     return output_path
 
 
+def build_video_with_searched_images(
+    slides: list[dict],
+    scripts: list[str],
+    search_queries: list[str],
+    colors: dict,
+    aspect_ratio: str = "9:16",
+    output_dir: str = "./output",
+    handle: str = "@cristian.bojaca",
+    voice_id: str = "pNInz6obpgDQGcFmaJgB",
+    crossfade: float = 0.3,
+    min_duration: float = 4.0,
+    padding: float = 0.8,
+) -> dict:
+    """Build a narrated MP4 using web-searched background images.
+
+    Searches the web for images matching each query, composites them
+    with slide text, and assembles the final video with voiceover.
+    Falls back to standard PNG slides when no image is found.
+
+    Returns:
+        Dict with 'video_path' and 'search_results' (query -> found/not found).
+    """
+    mp = _ensure_moviepy()
+    from moviepy import (
+        AudioFileClip,
+        ImageClip,
+        concatenate_videoclips,
+    )
+    from src.slides.image_search import search_and_download_images
+    from src.slides.image_generator import composite_slide
+    from src.slides.png_builder import build_pngs
+
+    if aspect_ratio == "9:16":
+        img_w, img_h = 1080, 1920
+    else:
+        img_w, img_h = 1920, 1080
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Step 1: Search and download images for each slide
+    image_results = search_and_download_images(
+        queries=search_queries,
+        per_query=5,
+        orientation="portrait" if aspect_ratio == "9:16" else "landscape",
+        target_size=(img_w, img_h),
+    )
+
+    # Step 2: Build slide PNGs — composite searched images with text,
+    # fall back to standard PNG slides where no image was found
+    search_report = {}
+    png_paths = []
+
+    # Build fallback standard PNGs for slides without images
+    fallback_pngs = build_pngs(
+        slides=slides,
+        colors=colors,
+        aspect_ratio=aspect_ratio,
+        output_dir=output_dir,
+        handle=handle,
+    )
+
+    for i, (slide, (query, img)) in enumerate(zip(slides, image_results)):
+        if img is not None:
+            # Composite slide text over the searched image
+            final = composite_slide(
+                bg_image=img,
+                slide=slide,
+                slide_index=i,
+                total_slides=len(slides),
+                colors=colors,
+                handle=handle,
+            )
+            out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
+            final.save(out_path, "PNG")
+            png_paths.append(out_path)
+            search_report[query] = "found"
+        else:
+            # Use fallback standard slide
+            png_paths.append(fallback_pngs[i])
+            search_report[query] = "not_found"
+
+    # Step 3: Synthesize audio and assemble video
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        slide_clips = []
+
+        for i, (png_path, script) in enumerate(zip(png_paths, scripts)):
+            audio_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
+            audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
+            with open(audio_path, "wb") as f:
+                f.write(audio_bytes)
+
+            audio_clip = AudioFileClip(audio_path)
+            duration = max(audio_clip.duration + padding, min_duration)
+
+            img_clip = (
+                ImageClip(png_path)
+                .with_duration(duration)
+                .with_audio(audio_clip)
+            )
+            slide_clips.append(img_clip)
+
+        if crossfade > 0 and len(slide_clips) > 1:
+            final_video = concatenate_videoclips(
+                slide_clips, method="compose", padding=-crossfade,
+            )
+        else:
+            final_video = concatenate_videoclips(slide_clips, method="compose")
+
+        output_path = os.path.join(output_dir, "narrated_web_slides.mp4")
+        final_video.write_videofile(
+            output_path, fps=24, codec="libx264",
+            audio_codec="aac", logger="bar",
+        )
+
+        for clip in slide_clips:
+            clip.close()
+        final_video.close()
+
+    return {"video_path": output_path, "search_results": search_report}
+
+
 def build_video_from_slides(
     slides: list[dict],
     colors: dict,
@@ -283,8 +404,9 @@ def build_video_from_slides(
     handle: str = "@cristian.bojaca",
     voice_id: str = "pNInz6obpgDQGcFmaJgB",
     use_ai_images: bool = False,
+    use_web_images: bool = False,
 ) -> dict:
-    """Full pipeline: generate script → (optionally AI images) → audio → video.
+    """Full pipeline: generate script → (optionally images) → audio → video.
 
     This is the main entry point that combines script generation with
     video assembly. Use this from the CLI or Streamlit UI.
@@ -292,9 +414,13 @@ def build_video_from_slides(
     Args:
         use_ai_images: If True, generates AI background images per slide.
             Requires GOOGLE_AI_API_KEY or OPENAI_API_KEY to be set.
+        use_web_images: If True, searches the web for relevant images
+            per slide and uses them as backgrounds. Falls back to
+            standard slides when no image is found.
 
     Returns:
-        Dict with 'video_path', 'scripts', and optionally 'image_prompts' keys.
+        Dict with 'video_path', 'scripts', and optionally
+        'image_prompts', 'search_queries', 'search_results' keys.
     """
     from src.content.generator import generate_video_script
 
@@ -303,7 +429,30 @@ def build_video_from_slides(
 
     result = {"scripts": scripts}
 
-    if use_ai_images:
+    if use_web_images:
+        from src.content.generator import generate_image_search_queries
+
+        # Generate search queries from script + slides
+        search_queries = generate_image_search_queries(
+            slides=slides, scripts=scripts, topic=topic, angle=angle,
+        )
+        result["search_queries"] = search_queries
+
+        # Build video with web-searched images
+        web_result = build_video_with_searched_images(
+            slides=slides,
+            scripts=scripts,
+            search_queries=search_queries,
+            colors=colors,
+            aspect_ratio=aspect_ratio,
+            output_dir=output_dir,
+            handle=handle,
+            voice_id=voice_id,
+        )
+        result["video_path"] = web_result["video_path"]
+        result["search_results"] = web_result["search_results"]
+
+    elif use_ai_images:
         from src.content.generator import generate_image_prompts
 
         # Generate image prompts
@@ -323,6 +472,7 @@ def build_video_from_slides(
             handle=handle,
             voice_id=voice_id,
         )
+        result["video_path"] = video_path
     else:
         # Build video with standard PNG slides
         video_path = build_video(
@@ -334,6 +484,6 @@ def build_video_from_slides(
             handle=handle,
             voice_id=voice_id,
         )
+        result["video_path"] = video_path
 
-    result["video_path"] = video_path
     return result
