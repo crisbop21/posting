@@ -68,6 +68,9 @@ video:
   padding: 0.8
   # Use AI-generated background images (requires REPLICATE_API_TOKEN)
   ai_images: false
+  # Ken Burns effect: animate background images with zoom/pan motion
+  # per slide role (hook=zoom-in, context=pan, payoff=zoom-out, cta=drift)
+  ken_burns: true
 
 # AI image generation (optional, requires Replicate API token)
 # Uses Flux Schnell via Replicate — ~$0.003 per image, ~2-4s per generation

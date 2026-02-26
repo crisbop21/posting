@@ -1095,6 +1095,62 @@ def composite_slide(
     return img
 
 
+def composite_slide_layers(
+    bg_image: Image.Image,
+    slide: dict,
+    slide_index: int,
+    total_slides: int,
+    colors: dict,
+    handle: str = "@cristian.bojaca",
+    foreground: Optional[Image.Image] = None,
+    bg_scale: float = 1.20,
+) -> tuple[Image.Image, Image.Image]:
+    """Render slide as separate background + overlay for animated compositing.
+
+    Unlike composite_slide() which returns a single flat image, this returns
+    two layers that can be animated independently (Ken Burns on background
+    while text overlay stays static).
+
+    Args:
+        bg_scale: Factor to upscale background (1.20 = 20% extra room for
+            zoom/pan animation).
+
+    Returns:
+        (treated_bg, text_overlay):
+        - treated_bg: Blurred + gradient background at bg_scale x target size.
+        - text_overlay: RGBA image at target size with foreground, frame, text.
+    """
+    w, h = bg_image.size
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
+    role = get_slide_role(slide_index, total_slides)
+
+    # --- Layers 1-2: Treated background (oversized for Ken Burns room) ---
+    scaled_w = int(w * bg_scale)
+    scaled_h = int(h * bg_scale)
+    bg_oversized = bg_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+
+    blur_radius = 18 if role == "hook" else 14
+    bg_treated = _blur_background(bg_oversized, radius=blur_radius)
+    bg_treated = _gradient_overlay(bg_treated, accent_c, role=role)
+
+    # --- Layers 3-5: Text overlay (target size, transparent canvas) ---
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+    # Layer 3: Foreground subject
+    if foreground is not None:
+        overlay = _composite_foreground(overlay, foreground, role=role)
+
+    # Layer 4: Branded frame
+    draw = ImageDraw.Draw(overlay)
+    _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
+
+    # Layer 5: Role-specific text layout
+    layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
+    layout_fn(overlay, slide, colors, w, h)
+
+    return bg_treated, overlay
+
+
 # ── Main Pipeline ────────────────────────────────────────────────────────────
 
 
