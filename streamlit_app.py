@@ -6,7 +6,7 @@ Flow:
   3. Provide Angle & Additional Data
   4. Choose a Hook (card-based selection)
   5. Generate & Verify Slides (verification dashboard)
-  6. Studio: Edit + Export (tabbed — Edit | Slides | AI Images | Video | Canva)
+  6. Studio: Edit + Export (tabbed — Edit | Slides | AI Images | Video)
 """
 
 import html as html_mod
@@ -37,18 +37,18 @@ from src.content.generator import (
     web_search_fact_check,
     enforce_hook_and_count,
     generate_image_prompts,
+    generate_video_script,
+    generate_image_search_queries,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 from src.slides.png_builder import build_pngs
-from src.slides.canva_builder import (
-    get_oauth_url,
-    exchange_code_for_token,
-    refresh_access_token,
-    build_canva_slides,
-)
 from src.slides.png_builder import build_style_alternatives
-from src.slides.video_builder import build_video_from_slides
+from src.slides.video_builder import (
+    build_video,
+    build_video_with_ai_images,
+    build_video_with_searched_images,
+)
 from src.slides.image_generator import generate_slide_images
 
 
@@ -196,19 +196,6 @@ with st.sidebar.expander("Integrations", expanded=True):
         type="password",
         help="Free. Get your key at https://pixabay.com/api/docs/",
     )
-    canva_cfg = config.get("canva", {})
-    canva_client_id = st.text_input(
-        "Canva Client ID",
-        value=canva_cfg.get("client_id", ""),
-        type="password",
-    )
-    canva_client_secret = st.text_input(
-        "Canva Client Secret",
-        value=canva_cfg.get("client_secret", ""),
-        type="password",
-    )
-    canva_enabled = bool(canva_client_id and canva_client_secret)
-
 # ── Demo Mode ─────────────────────────────────────────────────────────────────
 
 demo_mode = not api_key
@@ -366,36 +353,6 @@ with st.sidebar.expander("Review"):
         height=100,
     )
 
-# ── Canva OAuth handling ──────────────────────────────────────────────────────
-
-_query_params = st.query_params
-if "code" in _query_params and "state" in _query_params:
-    canva_code = _query_params.get("code", "")
-    canva_state = _query_params.get("state", "")
-    if canva_state == "canva" and canva_code and canva_enabled:
-        try:
-            _app_url = st.context.headers.get("Origin", "http://localhost:8501")
-            token_data = exchange_code_for_token(
-                canva_code, canva_client_id, canva_client_secret,
-                redirect_uri=_app_url,
-            )
-            st.session_state["canva_access_token"] = token_data["access_token"]
-            st.session_state["canva_refresh_token"] = token_data.get("refresh_token", "")
-            st.query_params.clear()
-            st.toast("Canva connected!")
-            st.rerun()
-        except Exception as exc:
-            st.sidebar.error(f"Canva OAuth failed: {exc}")
-
-if canva_enabled:
-    if st.session_state.get("canva_access_token"):
-        st.sidebar.success("Canva connected")
-    else:
-        _app_url = st.context.headers.get("Origin", "http://localhost:8501")
-        _oauth_url = get_oauth_url(canva_client_id, redirect_uri=_app_url)
-        st.sidebar.link_button("Connect Canva", _oauth_url)
-
-
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _require_api_key():
@@ -494,7 +451,6 @@ for key, default in {
     "tiktok_metadata": None,
     "pptx_path": None,
     "png_paths": [],
-    "canva_result": None,
     "mcp_alternatives": [],
     "video_path": None,
     "video_scripts": [],
@@ -1337,13 +1293,8 @@ elif st.session_state.step == 6:
         "highlight": highlight_color,
     }
 
-    has_canva = canva_enabled and st.session_state.get("canva_access_token")
-
     # Build tab list
     tab_labels = ["Edit", "Slides", "AI Images", "Video"]
-    if canva_enabled:
-        tab_labels.append("Canva")
-
     studio_tabs = st.tabs(tab_labels)
 
     # ══════════════════════════════════════════════════════════════════════
@@ -1756,49 +1707,137 @@ elif st.session_state.step == 6:
 
             live_slides = _get_live_slides()
 
-            if st.button("Build Narrated Video", type="primary", use_container_width=True, key="build_video"):
-                os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
-                if use_ai_bg:
-                    if google_ai_key:
-                        os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
-                        os.environ.pop("OPENAI_API_KEY", None)
-                    elif openai_img_key:
-                        os.environ["OPENAI_API_KEY"] = openai_img_key
-                        os.environ.pop("GOOGLE_AI_API_KEY", None)
-                if use_web_bg:
-                    if pexels_key:
-                        os.environ["PEXELS_API_KEY"] = pexels_key
-                    if pixabay_key:
-                        os.environ["PIXABAY_API_KEY"] = pixabay_key
-                _require_api_key()
+            # ── Step 1: Generate voiceover script ──────────────────────────
+            st.markdown("---")
+            st.markdown("**Step 1 — Voiceover Script**")
 
-                spinner_msg = "Generating voiceover scripts and building video..."
-                if use_web_bg:
-                    spinner_msg = "Generating script, searching for images, and building video..."
+            gen_col, reset_col = st.columns([3, 1])
+            with gen_col:
+                if st.button("Generate Script", type="primary", use_container_width=True, key="gen_script"):
+                    _require_api_key()
+                    with st.spinner("Generating voiceover scripts..."):
+                        try:
+                            topic = st.session_state.selected_topic["title"] if st.session_state.selected_topic else ""
+                            angle = st.session_state.get("angle", "")
+                            scripts = generate_video_script(
+                                slides=live_slides, topic=topic, angle=angle,
+                            )
+                            st.session_state.video_scripts = scripts
+                            # Clear previous video when regenerating scripts
+                            st.session_state.video_path = None
+                            st.session_state.video_search_queries = []
+                            st.session_state.video_search_results = {}
+                        except Exception as exc:
+                            st.error(f"Script generation failed: {exc}")
+                    st.rerun()
+            with reset_col:
+                if st.session_state.video_scripts and st.button(
+                    "Clear", use_container_width=True, key="clear_script"
+                ):
+                    st.session_state.video_scripts = []
+                    st.session_state.video_path = None
+                    st.rerun()
 
-                with st.spinner(spinner_msg):
-                    try:
-                        result = build_video_from_slides(
-                            slides=live_slides,
-                            colors=colors,
-                            topic=st.session_state.selected_topic["title"] if st.session_state.selected_topic else "",
-                            angle=st.session_state.get("angle", ""),
-                            aspect_ratio=aspect_ratio_val,
-                            output_dir="./output",
-                            handle=handle,
-                            voice_id=elevenlabs_voice,
-                            use_ai_images=use_ai_bg,
-                            use_web_images=use_web_bg,
-                        )
-                        st.session_state.video_path = result["video_path"]
-                        st.session_state.video_scripts = result["scripts"]
-                        st.session_state.video_search_queries = result.get("search_queries", [])
-                        st.session_state.video_search_results = result.get("search_results", {})
-                    except Exception as exc:
-                        st.error(f"Video build failed: {exc}")
-                st.rerun()
+            # Show editable script text areas
+            if st.session_state.video_scripts:
+                st.caption("Edit the scripts below before building the video.")
+                edited_scripts = []
+                for i, script in enumerate(st.session_state.video_scripts):
+                    edited = st.text_area(
+                        f"Slide {i + 1}",
+                        value=script,
+                        height=80,
+                        key=f"script_edit_{i}",
+                    )
+                    edited_scripts.append(edited)
 
+                # ── Step 2: Build video with edited scripts ────────────
+                st.markdown("---")
+                st.markdown("**Step 2 — Build Video**")
+
+                if st.button("Build Narrated Video", type="primary", use_container_width=True, key="build_video"):
+                    os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
+                    if use_ai_bg:
+                        if google_ai_key:
+                            os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
+                            os.environ.pop("OPENAI_API_KEY", None)
+                        elif openai_img_key:
+                            os.environ["OPENAI_API_KEY"] = openai_img_key
+                            os.environ.pop("GOOGLE_AI_API_KEY", None)
+                    if use_web_bg:
+                        if pexels_key:
+                            os.environ["PEXELS_API_KEY"] = pexels_key
+                        if pixabay_key:
+                            os.environ["PIXABAY_API_KEY"] = pixabay_key
+
+                    # Save edits back to session state
+                    st.session_state.video_scripts = edited_scripts
+
+                    spinner_msg = "Building video..."
+                    if use_web_bg:
+                        spinner_msg = "Searching for images and building video..."
+
+                    with st.spinner(spinner_msg):
+                        try:
+                            _topic = st.session_state.selected_topic["title"] if st.session_state.selected_topic else ""
+                            _angle = st.session_state.get("angle", "")
+
+                            if use_web_bg:
+                                _require_api_key()
+                                search_queries = generate_image_search_queries(
+                                    slides=live_slides, scripts=edited_scripts,
+                                    topic=_topic, angle=_angle,
+                                )
+                                web_result = build_video_with_searched_images(
+                                    slides=live_slides,
+                                    scripts=edited_scripts,
+                                    search_queries=search_queries,
+                                    colors=colors,
+                                    aspect_ratio=aspect_ratio_val,
+                                    output_dir="./output",
+                                    handle=handle,
+                                    voice_id=elevenlabs_voice,
+                                )
+                                st.session_state.video_path = web_result["video_path"]
+                                st.session_state.video_search_queries = search_queries
+                                st.session_state.video_search_results = web_result["search_results"]
+
+                            elif use_ai_bg:
+                                _require_api_key()
+                                image_prompts = generate_image_prompts(
+                                    slides=live_slides, topic=_topic, angle=_angle,
+                                )
+                                video_path = build_video_with_ai_images(
+                                    slides=live_slides,
+                                    scripts=edited_scripts,
+                                    image_prompts=image_prompts,
+                                    colors=colors,
+                                    aspect_ratio=aspect_ratio_val,
+                                    output_dir="./output",
+                                    handle=handle,
+                                    voice_id=elevenlabs_voice,
+                                )
+                                st.session_state.video_path = video_path
+
+                            else:
+                                video_path = build_video(
+                                    slides=live_slides,
+                                    scripts=edited_scripts,
+                                    colors=colors,
+                                    aspect_ratio=aspect_ratio_val,
+                                    output_dir="./output",
+                                    handle=handle,
+                                    voice_id=elevenlabs_voice,
+                                )
+                                st.session_state.video_path = video_path
+
+                        except Exception as exc:
+                            st.error(f"Video build failed: {exc}")
+                    st.rerun()
+
+            # ── Show result ────────────────────────────────────────────
             if st.session_state.video_path and os.path.exists(st.session_state.video_path):
+                st.markdown("---")
                 st.video(st.session_state.video_path)
                 with open(st.session_state.video_path, "rb") as f:
                     st.download_button(
@@ -1810,72 +1849,11 @@ elif st.session_state.step == 6:
                         use_container_width=True,
                         key="video_dl",
                     )
-                if st.session_state.video_scripts:
-                    with st.expander("Voiceover Scripts"):
-                        for i, script in enumerate(st.session_state.video_scripts):
-                            st.markdown(f"**Slide {i + 1}:** {script}")
                 if st.session_state.video_search_results:
                     with st.expander("Image Search Results"):
                         for query, status in st.session_state.video_search_results.items():
                             icon = "found" if status == "found" else "not found (used plain slide)"
                             st.markdown(f"- **\"{query}\"** — {icon}")
-
-    # ══════════════════════════════════════════════════════════════════════
-    # TAB: Canva (optional)
-    # ══════════════════════════════════════════════════════════════════════
-
-    if canva_enabled:
-        with studio_tabs[4]:
-            st.subheader("Canva Export")
-
-            if not has_canva:
-                st.info(
-                    "Connect your Canva account in the sidebar to export designs. "
-                    "Your Client ID and Secret are configured — click 'Connect Canva' in the sidebar."
-                )
-            else:
-                st.caption("Generate a Canva design from your slides. Edit further in Canva's visual editor.")
-
-                live_slides = _get_live_slides()
-
-                if st.button("Build with Canva", type="primary", use_container_width=True, key="build_canva"):
-                    with st.spinner("Generating Canva design (this may take a moment)..."):
-                        try:
-                            canva_result = build_canva_slides(
-                                slides=live_slides,
-                                access_token=st.session_state["canva_access_token"],
-                                topic=st.session_state.selected_topic["title"],
-                                aspect_ratio=aspect_ratio_val,
-                                colors=colors,
-                            )
-                            st.session_state.canva_result = canva_result
-                        except Exception as exc:
-                            st.error(f"Canva build failed: {exc}")
-                    st.rerun()
-
-                canva_result = st.session_state.canva_result
-                if canva_result:
-                    canva_col1, canva_col2 = st.columns(2)
-                    edit_url = canva_result.get("edit_url", "")
-                    export_url = canva_result.get("export_url", "")
-                    if edit_url:
-                        canva_col1.link_button(
-                            "Edit in Canva",
-                            edit_url,
-                            type="primary",
-                            use_container_width=True,
-                        )
-                    if export_url:
-                        canva_col2.link_button(
-                            "Download Canva PNG",
-                            export_url,
-                            use_container_width=True,
-                        )
-                    if not edit_url and not export_url:
-                        st.warning("Canva design was created but no URLs were returned.")
-                    st.caption(
-                        "Open in Canva to customize fonts, colors, and layouts."
-                    )
 
     # ── Back to edit hook/regenerate ───────────────────────────────────────
     st.divider()
