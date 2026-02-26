@@ -1,10 +1,9 @@
 """Search the web for images related to video script content.
 
-Supports two free providers (auto-detected from environment variables):
-  - Pexels API: Free, high-quality stock photos. Get a key at https://www.pexels.com/api/
-  - Pixabay API: Free, high-quality stock photos. Get a key at https://pixabay.com/api/docs/
-
-Both are genuinely free (no credit card). Set at least one key.
+Supports three providers (auto-detected from environment variables):
+  1. Pexels API: High-quality stock photos. Free key at https://www.pexels.com/api/
+  2. Pixabay API: High-quality stock photos. Free key at https://pixabay.com/api/docs/
+  3. Google Images: No API key needed — works out of the box.
 
 Usage:
     from src.slides.image_search import search_and_download_images
@@ -18,11 +17,19 @@ Usage:
 
 import io
 import os
+import re
 import time
 from typing import Optional
 
 import requests
 from PIL import Image
+
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0.0.0 Safari/537.36"
+)
 
 
 # ── Provider Detection ────────────────────────────────────────────────────────
@@ -38,16 +45,16 @@ def _get_pixabay_key() -> Optional[str]:
     return os.environ.get("PIXABAY_API_KEY", "").strip() or None
 
 
-def get_available_provider() -> Optional[str]:
-    """Return the name of the first available image search provider, or None.
+def get_available_provider() -> str:
+    """Return the name of the best available image search provider.
 
-    Used by the UI to check if web image search is configured.
+    Always returns a provider — Google Images works without any key.
     """
     if _get_pexels_key():
         return "Pexels"
     if _get_pixabay_key():
         return "Pixabay"
-    return None
+    return "Google"
 
 
 # ── Pexels API ────────────────────────────────────────────────────────────────
@@ -59,17 +66,7 @@ def _search_pexels(
     count: int = 5,
     orientation: str = "portrait",
 ) -> list[dict]:
-    """Search Pexels for photos matching the query.
-
-    Args:
-        query: Search term.
-        api_key: Pexels API key.
-        count: Number of results to request.
-        orientation: 'portrait', 'landscape', or 'square'.
-
-    Returns:
-        List of dicts with keys: url, width, height, photographer, source.
-    """
+    """Search Pexels for photos matching the query."""
     resp = requests.get(
         "https://api.pexels.com/v1/search",
         headers={"Authorization": api_key},
@@ -105,18 +102,7 @@ def _search_pixabay(
     count: int = 5,
     orientation: str = "vertical",
 ) -> list[dict]:
-    """Search Pixabay for photos matching the query.
-
-    Args:
-        query: Search term.
-        api_key: Pixabay API key.
-        count: Number of results to request.
-        orientation: 'vertical', 'horizontal', or 'all'.
-
-    Returns:
-        List of dicts with keys: url, width, height, source.
-    """
-    # Map Pexels-style orientation to Pixabay-style
+    """Search Pixabay for photos matching the query."""
     orientation_map = {"portrait": "vertical", "landscape": "horizontal", "square": "all"}
     pixabay_orientation = orientation_map.get(orientation, orientation)
 
@@ -148,6 +134,63 @@ def _search_pixabay(
     return results
 
 
+# ── Google Images (no API key) ────────────────────────────────────────────────
+
+
+def _search_google_images(
+    query: str,
+    count: int = 10,
+) -> list[dict]:
+    """Search Google Images by parsing the search results page.
+
+    No API key required.
+
+    Args:
+        query: Search term.
+        count: Number of results to return.
+
+    Returns:
+        List of dicts with keys: url, width, height, source.
+    """
+    resp = requests.get(
+        "https://www.google.com/search",
+        params={"q": query, "tbm": "isch", "ijn": "0"},
+        headers={"User-Agent": _BROWSER_UA},
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        return []
+
+    # Google embeds full-size image URLs in JSON arrays inside the page.
+    # Pattern matches: ["https://example.com/photo.jpg", ...]
+    raw_urls = re.findall(
+        r'\["(https?://[^"]+\.(?:jpg|jpeg|png|webp)(?:\?[^"]*)?)"',
+        resp.text,
+    )
+
+    # Deduplicate while preserving order; unescape unicode
+    seen = set()
+    results = []
+    for url in raw_urls:
+        url = url.replace("\\u003d", "=").replace("\\u0026", "&")
+        if url in seen:
+            continue
+        seen.add(url)
+        # Skip tiny thumbnails (Google's encrypted-tbn URLs are thumbnails)
+        if "encrypted-tbn" in url:
+            continue
+        results.append({
+            "url": url,
+            "width": 0,
+            "height": 0,
+            "source": "google",
+        })
+        if len(results) >= count:
+            break
+
+    return results
+
+
 # ── Image Download ────────────────────────────────────────────────────────────
 
 
@@ -160,9 +203,7 @@ def download_image(url: str, timeout: int = 20) -> Optional[Image.Image]:
         resp = requests.get(
             url,
             timeout=timeout,
-            headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-            },
+            headers={"User-Agent": _BROWSER_UA},
         )
         resp.raise_for_status()
         content_type = resp.headers.get("Content-Type", "")
@@ -171,7 +212,7 @@ def download_image(url: str, timeout: int = 20) -> Optional[Image.Image]:
         ):
             return None
         img = Image.open(io.BytesIO(resp.content))
-        img.load()  # Force decode to catch corrupt images
+        img.load()  # Force full decode to catch corrupt images
         return img
     except Exception:
         return None
@@ -187,12 +228,13 @@ def search_images(
 ) -> list[dict]:
     """Search for images using the best available provider.
 
-    Tries Pexels first, then Pixabay.
+    Priority: Pexels > Pixabay > Google Images.
+    Google Images always works as the final fallback (no key needed).
 
     Args:
         query: Search term.
         count: Number of results to request.
-        orientation: 'portrait', 'landscape', or 'square'.
+        orientation: 'portrait', 'landscape', or 'square' (Pexels/Pixabay only).
 
     Returns:
         List of dicts with keys: url, width, height, source.
@@ -216,12 +258,17 @@ def search_images(
         except Exception as e:
             print(f"[image_search] Pixabay search failed: {e}")
 
-    return []
+    # Google Images — always available, no key needed
+    try:
+        return _search_google_images(query, count)
+    except Exception as e:
+        print(f"[image_search] Google Images search failed: {e}")
+        return []
 
 
 def search_and_download_images(
     queries: list[str],
-    per_query: int = 3,
+    per_query: int = 5,
     orientation: str = "portrait",
     target_size: tuple[int, int] = (1080, 1920),
 ) -> list[tuple[str, Optional[Image.Image]]]:
@@ -240,17 +287,12 @@ def search_and_download_images(
         List of (query, Image or None) tuples. One per query.
     """
     provider = get_available_provider()
-    if not provider:
-        print("[image_search] No image search provider configured. "
-              "Set PEXELS_API_KEY or PIXABAY_API_KEY.")
-        return [(q, None) for q in queries]
-
     print(f"[image_search] Using {provider} for image search")
 
     results = []
     for i, query in enumerate(queries):
         if i > 0:
-            time.sleep(0.5)  # Rate limiting between queries
+            time.sleep(1)  # Rate limiting between queries
 
         search_results = search_images(query, count=per_query, orientation=orientation)
 
