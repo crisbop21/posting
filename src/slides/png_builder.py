@@ -621,10 +621,10 @@ def build_pngs(
     else:
         img_w, img_h = 1920, 1080
 
-    bg = _hex_to_tuple(colors.get("background", "#0D1117"))
+    bg = _hex_to_tuple(colors.get("background", "#0D0D15"))
     title_c = _hex_to_tuple(colors.get("title", "#FFFFFF"))
-    body_c = _hex_to_tuple(colors.get("body", "#C9D1D9"))
-    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
+    body_c = _hex_to_tuple(colors.get("body", "#C0C0D0"))
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
     muted_c = (74, 85, 104)  # #4A5568
 
     margin = int(img_w * 0.12)  # ~12% margin

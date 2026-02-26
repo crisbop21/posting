@@ -74,10 +74,10 @@ def build_pptx(
         prs.slide_width = Inches(13.33)
         prs.slide_height = Inches(7.5)
 
-    bg_color = _hex_to_rgb(colors.get("background", "#0D1117"))
+    bg_color = _hex_to_rgb(colors.get("background", "#0D0D15"))
     title_color = _hex_to_rgb(colors.get("title", "#FFFFFF"))
-    body_color = _hex_to_rgb(colors.get("body", "#C9D1D9"))
-    accent_color = _hex_to_rgb(colors.get("accent", "#58A6FF"))
+    body_color = _hex_to_rgb(colors.get("body", "#C0C0D0"))
+    accent_color = _hex_to_rgb(colors.get("accent", "#F7B731"))
     muted_color = _hex_to_rgb("#4A5568")
 
     slide_w = prs.slide_width

@@ -9,12 +9,15 @@ slides:
   # Slide dimensions (16:9 for social media stories, use 9:16 for vertical)
   aspect_ratio: "9:16"
   # Color scheme
+  # Color palette preset: premium_gold, neon_finance, money_green, electric
+  # Or set custom colors below (overrides preset)
+  palette: "premium_gold"
   colors:
-    background: "#0D1117"
-    title: "#FFFFFF"
-    body: "#C9D1D9"
-    accent: "#58A6FF"
-    highlight: "#F0883E"
+    background: "#0D0D15"
+    title: "#F0F0F0"
+    body: "#C0C0D0"
+    accent: "#F7B731"
+    highlight: "#FF5757"
 
 # Research preferences
 research:

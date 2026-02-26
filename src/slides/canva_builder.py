@@ -224,8 +224,8 @@ def build_canva_slides(
         - "design_id": Canva design ID
     """
     colors = colors or {}
-    bg = colors.get("background", "#0D1117")
-    accent = colors.get("accent", "#58A6FF")
+    bg = colors.get("background", "#0D0D15")
+    accent = colors.get("accent", "#F7B731")
 
     # Build a detailed prompt for Canva AI
     slides_text = "\n".join(

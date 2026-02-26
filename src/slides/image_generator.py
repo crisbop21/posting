@@ -239,6 +239,45 @@ def get_slide_role(index: int, total: int) -> str:
     return "context"
 
 
+# ── Color Palette Presets ─────────────────────────────────────────────────────
+
+PALETTE_PRESETS = {
+    "premium_gold": {
+        "background": "#0D0D15",
+        "title": "#F0F0F0",
+        "body": "#C0C0D0",
+        "accent": "#F7B731",
+        "highlight": "#FF5757",
+    },
+    "neon_finance": {
+        "background": "#0A0A1A",
+        "title": "#F0F0F0",
+        "body": "#B8C0CC",
+        "accent": "#00D4FF",
+        "highlight": "#FF3B5C",
+    },
+    "money_green": {
+        "background": "#0A1210",
+        "title": "#F0F0F0",
+        "body": "#B8C8C0",
+        "accent": "#00FF87",
+        "highlight": "#FFD700",
+    },
+    "electric": {
+        "background": "#050510",
+        "title": "#FFFFFF",
+        "body": "#C8D0E0",
+        "accent": "#25F4EE",
+        "highlight": "#FE2C55",
+    },
+}
+
+
+def get_palette(name: str = "premium_gold") -> dict:
+    """Get a named color palette preset."""
+    return PALETTE_PRESETS.get(name, PALETTE_PRESETS["premium_gold"]).copy()
+
+
 # ── Layer 1: Background Treatment ────────────────────────────────────────────
 
 
@@ -575,8 +614,8 @@ def _layout_hook(
     - Decorative elements fill dead space
     """
     draw = ImageDraw.Draw(img)
-    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
-    highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#FF5757"))
 
     margin = int(w * 0.07)
     content_w = w - 2 * margin
@@ -684,9 +723,9 @@ def _layout_context(
     - More vertical fill
     """
     draw = ImageDraw.Draw(img)
-    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
-    highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
-    body_c = _hex_to_tuple(colors.get("body", "#C9D1D9"))
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#FF5757"))
+    body_c = _hex_to_tuple(colors.get("body", "#C0C0D0"))
 
     margin = int(w * 0.08)
     content_w = w - 2 * margin
@@ -770,9 +809,9 @@ def _layout_payoff(
     - Body centered with more presence
     """
     draw = ImageDraw.Draw(img)
-    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
-    highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
-    body_c = _hex_to_tuple(colors.get("body", "#C9D1D9"))
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#FF5757"))
+    body_c = _hex_to_tuple(colors.get("body", "#C0C0D0"))
 
     margin = int(w * 0.09)
     content_w = w - 2 * margin
@@ -870,8 +909,8 @@ def _layout_cta(
     - Body text in warm tone
     """
     draw = ImageDraw.Draw(img)
-    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
-    highlight_c = _hex_to_tuple(colors.get("highlight", "#F0883E"))
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#FF5757"))
 
     margin = int(w * 0.09)
     content_w = w - 2 * margin
@@ -1028,7 +1067,7 @@ def composite_slide(
         foreground: Optional transparent PNG cutout to overlay.
     """
     w, h = bg_image.size
-    accent_c = _hex_to_tuple(colors.get("accent", "#58A6FF"))
+    accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
     role = get_slide_role(slide_index, total_slides)
 
     # Layer 1: Blur background

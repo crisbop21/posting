@@ -247,8 +247,8 @@ def generate_alternative_slides(
             - "export_url": PNG download URL (or "" if export failed)
     """
     colors = colors or {}
-    bg = colors.get("background", "#0D1117")
-    accent = colors.get("accent", "#58A6FF")
+    bg = colors.get("background", "#0D0D15")
+    accent = colors.get("accent", "#F7B731")
 
     slides_text = "\n".join(
         f"Slide {i + 1}: Title: \"{s['title']}\" | Body: \"{s['body']}\" | "

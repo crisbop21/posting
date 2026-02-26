@@ -314,11 +314,11 @@ with st.sidebar.expander("Slides & Branding"):
 with st.sidebar.expander("Colors"):
     colors_cfg = slides_cfg.get("colors", {})
     col1, col2 = st.columns(2)
-    bg_color = col1.color_picker("Background", colors_cfg.get("background", "#0D1117"))
+    bg_color = col1.color_picker("Background", colors_cfg.get("background", "#0D0D15"))
     title_color = col2.color_picker("Title", colors_cfg.get("title", "#FFFFFF"))
-    body_color = col1.color_picker("Body", colors_cfg.get("body", "#C9D1D9"))
-    accent_color = col2.color_picker("Accent", colors_cfg.get("accent", "#58A6FF"))
-    highlight_color = col1.color_picker("Highlight", colors_cfg.get("highlight", "#F0883E"))
+    body_color = col1.color_picker("Body", colors_cfg.get("body", "#C0C0D0"))
+    accent_color = col2.color_picker("Accent", colors_cfg.get("accent", "#F7B731"))
+    highlight_color = col1.color_picker("Highlight", colors_cfg.get("highlight", "#FF5757"))
 
 # ── Research ───────────────────────────────────────────────────────────────────
 
@@ -376,10 +376,10 @@ def _safe_get_slides(result, fallback: list[dict]) -> list[dict]:
 
 def _slide_preview_html(slide: dict, idx: int, total: int, colors: dict, handle_text: str) -> str:
     """Generate HTML for a live slide preview card."""
-    bg = colors.get("background", "#0D1117")
+    bg = colors.get("background", "#0D0D15")
     tc = colors.get("title", "#FFFFFF")
-    bc = colors.get("body", "#C9D1D9")
-    ac = colors.get("accent", "#58A6FF")
+    bc = colors.get("body", "#C0C0D0")
+    ac = colors.get("accent", "#F7B731")
 
     title = html_mod.escape(slide.get("title", "") or "")
     body = html_mod.escape(slide.get("body", "") or "").replace("\n", "<br>")
