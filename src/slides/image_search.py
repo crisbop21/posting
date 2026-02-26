@@ -313,3 +313,74 @@ def search_and_download_images(
         results.append((query, downloaded))
 
     return results
+
+
+# ── Transparent PNG Cutout Search ────────────────────────────────────────────
+
+
+def _has_transparency(img: Image.Image) -> bool:
+    """Check if an image has meaningful transparency (alpha channel with variation)."""
+    if img.mode != "RGBA":
+        return False
+    alpha = img.getchannel("A")
+    extrema = alpha.getextrema()
+    # If alpha ranges from near-0 to near-255, it has real transparency
+    return extrema[0] < 200 and extrema[1] > 50
+
+
+def search_transparent_cutouts(
+    queries: list[str],
+    per_query: int = 8,
+    target_height: int = 900,
+) -> list[tuple[str, Optional[Image.Image]]]:
+    """Search for transparent PNG cutouts of people/objects.
+
+    Appends 'transparent png cutout no background' to each query
+    to bias results toward images with alpha channels.
+
+    Args:
+        queries: List of search terms describing the subject.
+        per_query: Number of search results to try per query.
+        target_height: Approximate height to scale cutouts to.
+
+    Returns:
+        List of (query, Image or None) tuples. Images are RGBA with
+        transparency preserved (not resized to fixed dimensions).
+    """
+    provider = get_available_provider()
+    print(f"[cutout_search] Using {provider} for cutout search")
+
+    results = []
+    for i, query in enumerate(queries):
+        if i > 0:
+            time.sleep(1)
+
+        # Bias search toward transparent PNGs
+        cutout_query = f"{query} transparent png cutout no background"
+        search_results = search_images(cutout_query, count=per_query, orientation="portrait")
+
+        downloaded = None
+        for result in search_results:
+            img = download_image(result["url"])
+            if img is None:
+                continue
+
+            img = img.convert("RGBA")
+
+            # Check for actual transparency
+            if _has_transparency(img):
+                # Scale to target height, preserving aspect ratio
+                orig_w, orig_h = img.size
+                scale = target_height / orig_h
+                new_w = int(orig_w * scale)
+                img = img.resize((new_w, target_height), Image.Resampling.LANCZOS)
+                downloaded = img
+                print(f"[cutout_search] Slide {i + 1}: found cutout for '{query}'")
+                break
+
+        if downloaded is None:
+            print(f"[cutout_search] Slide {i + 1}: no cutout found for '{query}'")
+
+        results.append((query, downloaded))
+
+    return results
