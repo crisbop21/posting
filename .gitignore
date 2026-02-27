@@ -6,5 +6,7 @@ build/
 .venv/
 venv/
 .env
+.env.*
 output/
 *.pptx
+flagged/

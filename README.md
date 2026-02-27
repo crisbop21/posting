@@ -1,3 +1,14 @@
+---
+title: Posting - Finance Slides
+emoji: 📊
+colorFrom: blue
+colorTo: yellow
+sdk: gradio
+sdk_version: "5.0.0"
+app_file: app.py
+pinned: false
+---
+
 # Posting
 
 Daily finance research and slide generation for TikTok and Instagram.
@@ -8,28 +19,44 @@ and outputs a ready to post PPTX deck.
 
 ## Setup
 
+### Gradio Web App (recommended)
+
 ```bash
-pip install -e .
+pip install -r requirements_gradio.txt
+python gradio_app.py
+# Opens at http://localhost:7860
 ```
 
-Copy `.env.example` to `.env` and fill in your API keys:
+### Streamlit App
 
 ```bash
-cp .env.example .env
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+### CLI
+
+```bash
+pip install -e .
+python -m src.main              # default config
+python -m src.main -c my.yaml   # custom config
 ```
 
 **Required:** `ANTHROPIC_API_KEY`
-**Optional:** `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (for the Reddit source)
+**Optional:** `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` (for Reddit), `ELEVENLABS_API_KEY` (for video), `GOOGLE_AI_API_KEY` or `OPENAI_API_KEY` (for AI images), `PEXELS_API_KEY` or `PIXABAY_API_KEY` (for image search)
 
-## Usage
+## Deploy to HuggingFace Spaces (free)
 
-```bash
-# Run with default config
-python -m src.main
+1. Create a new Space at [huggingface.co/new-space](https://huggingface.co/new-space) with **Gradio** SDK
+2. Push this repo to the Space:
+   ```bash
+   git remote add space https://huggingface.co/spaces/YOUR_USERNAME/posting
+   git push space main
+   ```
+3. Add your `ANTHROPIC_API_KEY` as a Space Secret in Settings
+4. The app will be live at `https://YOUR_USERNAME-posting.hf.space`
 
-# Run with a custom config file
-python -m src.main -c my_config.yaml
-```
+Runs in **demo mode** (no API key needed) with sample Tesla Q4 data so visitors can explore the full workflow.
 
 ## Configuration
 
