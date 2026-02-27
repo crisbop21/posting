@@ -427,15 +427,11 @@ def _generate_whoosh_sfx(path, sample_rate=44100):
 # ── Overlay Card Preparation ────────────────────────────────────────────────
 
 # Positions for overlay cards (x_frac, y_frac) — top-left corner.
-# Placed within the 25-60% main content band, avoiding:
-#   - Top 25%: title + status bar
-#   - Bottom 27%: platform UI (buttons, nav) + caption zone
-#   - Right 11%: platform action buttons (like/comment/share)
+# Two alternating positions within the 25-73% content band.
+# Cards rotate between these two spots (left ↔ right).
 CARD_POSITIONS = [
-    (0.55, 0.27),   # Right, upper
-    (0.04, 0.38),   # Left, middle
-    (0.50, 0.48),   # Right, lower-middle
-    (0.04, 0.33),   # Left, upper-middle
+    (0.06, 0.35),   # Left-center
+    (0.52, 0.35),   # Right-center
 ]
 
 
@@ -969,8 +965,8 @@ def build_video_with_searched_images(
     #          or ("static", png_path)
     slide_visuals = []
 
-    # Overlay card dimensions
-    card_w = int(img_w * 0.30)
+    # Overlay card dimensions — uniform size, ~40% of frame width
+    card_w = int(img_w * 0.40)
     card_h = int(card_w * 0.75)  # 4:3 landscape
 
     accent_hex = colors.get("accent", "#F7B731")
