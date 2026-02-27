@@ -2,20 +2,27 @@
 
 Pipeline:
   1. Generate voiceover script per slide (via Claude)
-  2. Synthesize audio per slide (via ElevenLabs)
+  2. Synthesize audio per slide (via ElevenLabs, with word timestamps)
   3. Render PNG slides as video frames with audio overlay
   4. Combine into a single MP4 with crossfade transitions
 
 Dynamic slide mode (web images):
   - Rotating backgrounds: multiple web images crossfade under Ken Burns motion
-  - Overlay cards: cropped images pop in every ~2s as picture-in-picture
+  - Overlay cards: cropped images pop in synced to key words in the voiceover
   - Sound effects: subtle whoosh/pop synced to visual changes
   - Caption safe zone: bottom 15% kept clear for external subtitles
+
+Visual events are aligned to the voiceover rather than a fixed clock:
+  - Stats/numbers in the script trigger overlay card pop-ins
+  - Sentence boundaries trigger background transitions
+  - Fallback to even spacing when timestamps are unavailable
 """
 
+import base64
 import io
 import math
 import os
+import re
 import tempfile
 import wave
 from pathlib import Path
@@ -69,6 +76,59 @@ def synthesize_speech(
     return resp.content
 
 
+def synthesize_speech_with_timestamps(
+    text: str,
+    voice_id: str = "pNInz6obpgDQGcFmaJgB",
+    model_id: str = "eleven_multilingual_v2",
+    stability: float = 0.5,
+    similarity_boost: float = 0.75,
+) -> tuple[bytes, list[float], list[float]]:
+    """TTS with character-level timing via ElevenLabs /with-timestamps endpoint.
+
+    The alignment maps each character in the input text to its spoken time,
+    which lets us sync visual events to specific words in the voiceover.
+
+    Returns:
+        (mp3_bytes, char_start_times, char_end_times).
+        Falls back to (mp3_bytes, [], []) if timestamps unavailable.
+    """
+    api_key = _get_elevenlabs_key()
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "text": text,
+        "model_id": model_id,
+        "voice_settings": {
+            "stability": stability,
+            "similarity_boost": similarity_boost,
+        },
+    }
+
+    try:
+        resp = requests.post(url, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        audio_b64 = data.get("audio_base64", "")
+        audio_bytes = base64.b64decode(audio_b64)
+
+        alignment = data.get("alignment", {})
+        char_starts = alignment.get("character_start_times_seconds", [])
+        char_ends = alignment.get("character_end_times_seconds", [])
+
+        return audio_bytes, char_starts, char_ends
+    except Exception:
+        # Fallback: regular TTS without timestamps
+        audio_bytes = synthesize_speech(
+            text=text, voice_id=voice_id, model_id=model_id,
+            stability=stability, similarity_boost=similarity_boost,
+        )
+        return audio_bytes, [], []
+
+
 def list_voices() -> list[dict]:
     """Fetch available ElevenLabs voices. Useful for letting the user pick."""
     api_key = _get_elevenlabs_key()
@@ -101,6 +161,123 @@ def _ensure_moviepy():
             "moviepy is required for video generation. "
             "Install it with: pip install moviepy"
         )
+
+
+# ── Voice-Synced Visual Cues ────────────────────────────────────────────────
+
+# Pattern for numbers, percentages, dollar amounts, multipliers in script text.
+_STAT_RE = re.compile(
+    r'(\$[\d,.]+(?:\s*(?:trillion|billion|million|thousand|[TBMK]))?\w*'
+    r'|[\d,.]+%'
+    r'|[\d,.]+x'
+    r'|[\d,.]+(?:\s*(?:trillion|billion|million|thousand)))',
+    re.IGNORECASE,
+)
+
+
+def _extract_visual_cues(
+    script: str,
+    char_starts: list[float],
+    char_ends: list[float],
+    duration: float,
+    n_cards: int,
+    n_bgs: int,
+    min_gap: float = 1.5,
+) -> tuple[list[float] | None, list[float] | None]:
+    """Derive visual event times from voiceover character timestamps.
+
+    Scans the script for key stats/numbers and sentence boundaries, maps
+    them to their spoken timestamps, and distributes overlay card pop-ins
+    and background transitions at those moments.
+
+    Args:
+        script: Original voiceover text sent to TTS.
+        char_starts: Per-character start times from ElevenLabs alignment.
+        char_ends: Per-character end times from ElevenLabs alignment.
+        duration: Total slide duration in seconds.
+        n_cards: Number of overlay cards available.
+        n_bgs: Number of background images available.
+        min_gap: Minimum seconds between consecutive events.
+
+    Returns:
+        (card_times, bg_change_times) or (None, None) if no timestamps.
+    """
+    if not char_starts:
+        return None, None
+
+    # --- Collect candidate cue times ---
+
+    # Stats/numbers → ideal moments for overlay cards
+    stat_times = set()
+    for m in _STAT_RE.finditer(script):
+        pos = m.start()
+        if pos < len(char_starts):
+            stat_times.add(char_starts[pos])
+
+    # Sentence boundaries → ideal moments for background transitions
+    sentence_times = set()
+    for m in re.finditer(r'[.!?;—]\s', script):
+        pos = m.start()
+        if pos < len(char_ends):
+            sentence_times.add(char_ends[pos])
+
+    # Merge, sort, and filter: enforce min gap, avoid extreme start/end
+    all_cues = sorted(stat_times | sentence_times)
+    filtered = []
+    for t in all_cues:
+        if t < 0.3 or t > duration - 0.5:
+            continue
+        if not filtered or t - filtered[-1] >= min_gap:
+            filtered.append(t)
+
+    # --- Assign cues to visual events ---
+
+    card_times: list[float] = []
+    bg_times: list[float] = []
+    used: set[float] = set()
+
+    # First pass: stat-aligned cues → cards
+    for t in filtered:
+        if t in stat_times and len(card_times) < n_cards:
+            card_times.append(t)
+            used.add(t)
+
+    # Second pass: sentence-aligned cues → bg changes
+    for t in filtered:
+        if t not in used and t in sentence_times and len(bg_times) < n_bgs - 1:
+            bg_times.append(t)
+            used.add(t)
+
+    # Third pass: fill remaining from any unused cues
+    for t in filtered:
+        if t in used:
+            continue
+        if len(card_times) < n_cards:
+            card_times.append(t)
+            used.add(t)
+        elif len(bg_times) < n_bgs - 1:
+            bg_times.append(t)
+            used.add(t)
+
+    # Fallback: fill with evenly-spaced times if not enough cues
+    if len(card_times) < n_cards:
+        interval = duration / (n_cards + 1)
+        for j in range(len(card_times), n_cards):
+            t = interval * (j + 1)
+            if all(abs(t - ct) >= min_gap for ct in card_times + bg_times):
+                card_times.append(t)
+
+    if len(bg_times) < n_bgs - 1:
+        interval = duration / n_bgs
+        for j in range(len(bg_times), n_bgs - 1):
+            t = interval * (j + 1)
+            if all(abs(t - bt) >= min_gap for bt in bg_times + card_times):
+                bg_times.append(t)
+
+    card_times.sort()
+    bg_times.sort()
+
+    return card_times, bg_times
 
 
 # ── Ken Burns Motion ─────────────────────────────────────────────────────────
@@ -320,16 +497,16 @@ def _make_dynamic_slide_clip(
     target_h,
     duration,
     base_motion="zoom_in",
-    bg_interval=3.5,
-    card_interval=2.0,
+    card_times=None,
+    bg_change_times=None,
+    card_hold=1.8,
     bg_crossfade=0.4,
 ):
     """Create an animated slide clip with rotating backgrounds and overlay cards.
 
-    This is the full-featured version of _make_kenburns_clip. It handles:
-      - Multiple background images rotating with crossfade and Ken Burns motion
-      - Overlay card images popping in every card_interval seconds
-      - All composited with the static text overlay on top
+    Visual events are timed by explicit timestamps (synced to the voiceover)
+    rather than fixed intervals. If card_times / bg_change_times are None,
+    falls back to evenly-spaced timing.
 
     Args:
         treated_bgs: List of oversized PIL Images (blurred + gradient).
@@ -338,13 +515,28 @@ def _make_dynamic_slide_clip(
         target_w, target_h: Output frame dimensions.
         duration: Total clip duration in seconds.
         base_motion: Primary Ken Burns motion for the first segment.
-        bg_interval: Seconds between background rotations.
-        card_interval: Seconds between overlay card appearances.
+        card_times: Explicit pop-in times for each overlay card (voice-synced).
+        bg_change_times: Explicit transition times between backgrounds.
+        card_hold: How long (seconds) each card stays visible.
         bg_crossfade: Duration of crossfade between backgrounds.
     """
     import numpy as np
     from moviepy import VideoClip
     from PIL import Image
+
+    # Fallback to even spacing if no explicit times
+    if card_times is None:
+        interval = 2.0
+        card_times = [
+            i * interval for i in range(len(card_images))
+            if i * interval < duration - 0.5
+        ]
+    if bg_change_times is None:
+        bg_interval = max(3.0, duration / max(len(treated_bgs), 1))
+        bg_change_times = [
+            i * bg_interval for i in range(1, len(treated_bgs))
+            if i * bg_interval < duration - 0.5
+        ]
 
     # Pre-compute all numpy arrays
     bg_arrays = []
@@ -373,7 +565,7 @@ def _make_dynamic_slide_clip(
 
     n_bgs = len(bg_arrays)
 
-    # Assign a motion per bg segment
+    # Assign a Ken Burns motion per background segment
     motions = [base_motion]
     for j in range(1, n_bgs):
         motions.append(SEGMENT_MOTIONS[j % len(SEGMENT_MOTIONS)])
@@ -381,7 +573,6 @@ def _make_dynamic_slide_clip(
     def make_frame(t):
         # ── 1. BACKGROUND LAYER (rotating + Ken Burns) ──
         if n_bgs == 1:
-            # Single background — simple Ken Burns
             src_w, src_h = bg_dims[0]
             p = t / duration if duration > 0 else 0
             p = 0.5 - 0.5 * math.cos(math.pi * p)
@@ -389,12 +580,22 @@ def _make_dynamic_slide_clip(
                 bg_arrays[0], src_w, src_h, target_w, target_h, p, motions[0],
             )
         else:
-            seg_idx = min(int(t / bg_interval), n_bgs - 1)
-            t_in_seg = t - seg_idx * bg_interval
-            seg_dur = bg_interval
+            # Find current segment from bg_change_times
+            seg_idx = sum(1 for bt in bg_change_times if t >= bt)
+            seg_idx = min(seg_idx, n_bgs - 1)
+
+            # Segment time boundaries
+            seg_start = bg_change_times[seg_idx - 1] if seg_idx > 0 else 0.0
+            seg_end = (
+                bg_change_times[seg_idx]
+                if seg_idx < len(bg_change_times)
+                else duration
+            )
+            seg_dur = max(seg_end - seg_start, 0.01)
 
             # Ken Burns progress within segment
-            p = t_in_seg / seg_dur if seg_dur > 0 else 0
+            p = (t - seg_start) / seg_dur
+            p = max(0.0, min(1.0, p))
             p = 0.5 - 0.5 * math.cos(math.pi * p)
             src_w, src_h = bg_dims[seg_idx]
             bg_frame = _kenburns_crop(
@@ -402,41 +603,47 @@ def _make_dynamic_slide_clip(
                 target_w, target_h, p, motions[seg_idx],
             )
 
-            # Crossfade to next background
-            next_idx = seg_idx + 1
-            if next_idx < n_bgs and t_in_seg > seg_dur - bg_crossfade:
-                cf = (t_in_seg - (seg_dur - bg_crossfade)) / bg_crossfade
-                nsrc_w, nsrc_h = bg_dims[next_idx]
-                bg_next = _kenburns_crop(
-                    bg_arrays[next_idx], nsrc_w, nsrc_h,
-                    target_w, target_h, 0.0, motions[next_idx],
-                )
-                bg_frame = bg_frame * (1.0 - cf) + bg_next * cf
+            # Crossfade approaching the next change time
+            if seg_idx < len(bg_change_times):
+                time_to_change = bg_change_times[seg_idx] - t
+                next_idx = seg_idx + 1
+                if 0 < time_to_change < bg_crossfade and next_idx < n_bgs:
+                    cf = 1.0 - time_to_change / bg_crossfade
+                    nsrc_w, nsrc_h = bg_dims[next_idx]
+                    bg_next = _kenburns_crop(
+                        bg_arrays[next_idx], nsrc_w, nsrc_h,
+                        target_w, target_h, 0.0, motions[next_idx],
+                    )
+                    bg_frame = bg_frame * (1.0 - cf) + bg_next * cf
 
-        # ── 2. OVERLAY CARD LAYER (pop-in images) ──
+        # ── 2. OVERLAY CARD LAYER (voice-synced pop-ins) ──
         frame = bg_frame.copy()
 
         if card_arrays:
-            card_idx = int(t / card_interval)
-            if card_idx < len(card_arrays):
-                t_card = t - card_idx * card_interval
+            # Find which card is currently visible
+            active_card = -1
+            t_card_local = 0.0
+            for ci, ct in enumerate(card_times):
+                if ci < len(card_arrays) and ct <= t < ct + card_hold:
+                    active_card = ci
+                    t_card_local = t - ct
+                    break
 
-                # Fade in / hold / fade out
+            if active_card >= 0:
                 fade_in = 0.2
                 fade_out = 0.2
-                if t_card < fade_in:
-                    fade = t_card / fade_in
-                elif t_card > card_interval - fade_out:
-                    fade = max(0.0, (card_interval - t_card) / fade_out)
+                if t_card_local < fade_in:
+                    fade = t_card_local / fade_in
+                elif t_card_local > card_hold - fade_out:
+                    fade = max(0.0, (card_hold - t_card_local) / fade_out)
                 else:
                     fade = 1.0
 
                 if fade > 0.01:
-                    card = card_arrays[card_idx]
-                    cx, cy = card_positions_px[card_idx]
+                    card = card_arrays[active_card]
+                    cx, cy = card_positions_px[active_card]
                     ch, cw = card.shape[:2]
 
-                    # Clamp to frame bounds
                     y1 = max(0, cy)
                     x1 = max(0, cx)
                     y2 = min(target_h, cy + ch)
@@ -447,7 +654,9 @@ def _make_dynamic_slide_clip(
                     sx2 = sx1 + (x2 - x1)
 
                     card_slice = card[sy1:sy2, sx1:sx2]
-                    card_a = card_slice[:, :, 3:4].astype(np.float32) / 255.0 * fade
+                    card_a = (
+                        card_slice[:, :, 3:4].astype(np.float32) / 255.0 * fade
+                    )
                     card_rgb = card_slice[:, :, :3].astype(np.float32)
 
                     region = frame[y1:y2, x1:x2]
@@ -664,15 +873,12 @@ def build_video_with_searched_images(
 ) -> dict:
     """Build a narrated MP4 using web-searched background images.
 
-    Full dynamic pipeline:
-      - Searches for multiple images per slide
-      - Splits them into rotating backgrounds and overlay cards
-      - Applies Ken Burns motion with crossfade between backgrounds
-      - Pops in overlay cards every ~2s as picture-in-picture
-      - Generates subtle SFX (pop/whoosh) at each visual change
-      - Reserves bottom 15% of frame for external captions
-
-    Falls back to standard PNG slides when no images are found.
+    Full dynamic pipeline with voice-synced visual events:
+      - Uses ElevenLabs /with-timestamps for character-level speech timing
+      - Stats/numbers in the script trigger overlay card pop-ins
+      - Sentence boundaries trigger background transitions
+      - SFX (pop/whoosh) synced to each visual event
+      - Falls back to even spacing when timestamps are unavailable
 
     Args:
         cutout_queries: Optional search terms for transparent PNG foreground
@@ -818,7 +1024,7 @@ def build_video_with_searched_images(
             slide_visuals.append(("static", fallback_pngs[i]))
             search_report[query] = "not_found"
 
-    # Step 3: Synthesize audio, generate SFX, and assemble video
+    # Step 3: Synthesize audio (with timestamps), generate SFX, assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Pre-generate SFX files
         pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
@@ -829,9 +1035,13 @@ def build_video_with_searched_images(
         slide_clips = []
 
         for i, (visual, script) in enumerate(zip(slide_visuals, scripts)):
-            # Synthesize voiceover
+            # Synthesize voiceover WITH character timestamps
             vo_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
-            audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
+            audio_bytes, char_starts, char_ends = (
+                synthesize_speech_with_timestamps(
+                    text=script, voice_id=voice_id,
+                )
+            )
             with open(vo_path, "wb") as f:
                 f.write(audio_bytes)
 
@@ -844,9 +1054,15 @@ def build_video_with_searched_images(
                 if role == "context" and i % 2 == 1:
                     motion = "pan_left"
 
-                # Calculate intervals based on available content
-                bg_interval = max(3.0, duration / max(len(treated_bgs), 1))
-                card_interval = 2.0
+                # Extract voice-synced cue times (or None → even spacing)
+                card_times, bg_change_times = _extract_visual_cues(
+                    script=script,
+                    char_starts=char_starts,
+                    char_ends=char_ends,
+                    duration=duration,
+                    n_cards=len(cards),
+                    n_bgs=len(treated_bgs),
+                )
 
                 clip = _make_dynamic_slide_clip(
                     treated_bgs=treated_bgs,
@@ -856,27 +1072,30 @@ def build_video_with_searched_images(
                     target_h=img_h,
                     duration=duration,
                     base_motion=motion,
-                    bg_interval=bg_interval,
-                    card_interval=card_interval,
+                    card_times=card_times,
+                    bg_change_times=bg_change_times,
                 )
 
-                # Build audio: voiceover + SFX at card/bg transition points
+                # Build audio: voiceover + SFX synced to visual events
                 audio_parts = [vo_clip]
 
-                # SFX for overlay card appearances
-                sfx_paths = [pop_sfx_path, whoosh_sfx_path]
-                for c_idx in range(len(cards)):
-                    t_pop = c_idx * card_interval
-                    if t_pop < duration - 0.3:
-                        sfx_path = sfx_paths[c_idx % len(sfx_paths)]
-                        sfx = AudioFileClip(sfx_path).with_start(t_pop)
+                # Resolve actual timing (may be voice-synced or fallback)
+                actual_card_times = card_times or [
+                    j * 2.0 for j in range(len(cards))
+                    if j * 2.0 < duration - 0.3
+                ]
+                actual_bg_times = bg_change_times or []
+
+                sfx_paths_list = [pop_sfx_path, whoosh_sfx_path]
+                for ci, ct in enumerate(actual_card_times):
+                    if ct < duration - 0.3:
+                        sfx_path = sfx_paths_list[ci % len(sfx_paths_list)]
+                        sfx = AudioFileClip(sfx_path).with_start(ct)
                         audio_parts.append(sfx)
 
-                # SFX for background transitions
-                for b_idx in range(1, len(treated_bgs)):
-                    t_bg = b_idx * bg_interval
-                    if t_bg < duration - 0.3:
-                        sfx = AudioFileClip(whoosh_sfx_path).with_start(t_bg)
+                for bt in actual_bg_times:
+                    if bt < duration - 0.3:
+                        sfx = AudioFileClip(whoosh_sfx_path).with_start(bt)
                         audio_parts.append(sfx)
 
                 if len(audio_parts) > 1:
