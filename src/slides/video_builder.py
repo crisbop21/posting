@@ -1018,11 +1018,12 @@ def build_video_with_searched_images(
 
             slide_visuals.append(("dynamic", treated_bgs, overlay, cards, role))
 
-            # Save static preview for reference
+            # Save static preview for reference (title-only to match video)
             preview = composite_slide(
                 bg_image=bg_imgs[0], slide=slide, slide_index=i,
                 total_slides=len(slides), colors=colors,
                 handle=handle, foreground=foreground,
+                title_only=True,
             )
             preview.save(
                 os.path.join(output_dir, f"web_slide_{i + 1:02d}.png"), "PNG",
@@ -1030,11 +1031,12 @@ def build_video_with_searched_images(
             search_report[query] = f"found ({len(images)} images)"
 
         elif images and not ken_burns:
-            # Static composite (no animation)
+            # Static composite (no animation, title-only for captioned mode)
             final = composite_slide(
                 bg_image=images[0], slide=slide, slide_index=i,
                 total_slides=len(slides), colors=colors,
                 handle=handle, foreground=foreground,
+                title_only=True,
             )
             out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
             final.save(out_path, "PNG")

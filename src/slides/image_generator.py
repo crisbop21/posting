@@ -1106,6 +1106,7 @@ def composite_slide(
     colors: dict,
     handle: str = "@cristian.bojaca",
     foreground: Optional[Image.Image] = None,
+    title_only: bool = False,
 ) -> Image.Image:
     """Composite a slide with the full 5-layer visual treatment.
 
@@ -1114,7 +1115,7 @@ def composite_slide(
       2. Gradient overlay: role-aware darkening + accent tint
       3. Foreground subject: transparent PNG cutout (optional)
       4. Branded frame: accent bars, counter pill, handle
-      5. Text: role-specific layout (hook / context / payoff / cta)
+      5. Text: role-specific layout (or title-only when captions carry the body)
 
     Args:
         bg_image: Source background image (will be blurred).
@@ -1124,6 +1125,8 @@ def composite_slide(
         colors: Color scheme dict.
         handle: Social media handle.
         foreground: Optional transparent PNG cutout to overlay.
+        title_only: If True, render only the title at the top instead of
+            the full role-specific layout.
     """
     w, h = bg_image.size
     accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
@@ -1147,9 +1150,12 @@ def composite_slide(
     # Layer 4: Branded frame
     _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
 
-    # Layer 5: Role-specific text layout
-    layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
-    layout_fn(img, slide, colors, w, h)
+    # Layer 5: Text layout (title-only when captions carry the script body)
+    if title_only:
+        _layout_title_only(img, slide, colors, w, h)
+    else:
+        layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
+        layout_fn(img, slide, colors, w, h)
 
     return img
 
