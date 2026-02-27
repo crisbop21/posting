@@ -10,7 +10,7 @@ Dynamic slide mode (web images):
   - Rotating backgrounds: multiple web images crossfade under Ken Burns motion
   - Overlay cards: cropped images pop in synced to key words in the voiceover
   - Sound effects: subtle whoosh/pop synced to visual changes
-  - Caption safe zone: bottom 15% kept clear for external subtitles
+  - Caption safe zone: bottom 27% kept clear for platform UI + external subtitles
 
 Visual events are aligned to the voiceover rather than a fixed clock:
   - Stats/numbers in the script trigger overlay card pop-ins
@@ -427,12 +427,15 @@ def _generate_whoosh_sfx(path, sample_rate=44100):
 # ── Overlay Card Preparation ────────────────────────────────────────────────
 
 # Positions for overlay cards (x_frac, y_frac) — top-left corner.
-# Placed to avoid typical title (top 10-25%) and caption zone (bottom 15%).
+# Placed within the 25-60% main content band, avoiding:
+#   - Top 25%: title + status bar
+#   - Bottom 27%: platform UI (buttons, nav) + caption zone
+#   - Right 11%: platform action buttons (like/comment/share)
 CARD_POSITIONS = [
-    (0.60, 0.28),   # Right, upper
-    (0.04, 0.42),   # Left, middle
-    (0.56, 0.54),   # Right, lower-middle
-    (0.06, 0.34),   # Left, upper-middle
+    (0.55, 0.27),   # Right, upper
+    (0.04, 0.38),   # Left, middle
+    (0.50, 0.48),   # Right, lower-middle
+    (0.04, 0.33),   # Left, upper-middle
 ]
 
 
@@ -501,7 +504,7 @@ def _make_dynamic_slide_clip(
     bg_change_times=None,
     card_hold=1.8,
     bg_crossfade=0.4,
-    caption_safe_pct=0.15,
+    caption_safe_pct=0.27,
 ):
     """Create an animated slide clip with rotating backgrounds and overlay cards.
 
@@ -553,9 +556,11 @@ def _make_dynamic_slide_clip(
     text_alpha = ov[:, :, 3:4].astype(np.float32) / 255.0
     text_rgb = ov[:, :, :3].astype(np.float32)
 
-    # Safe zone boundaries (pixels) — cards must stay within these
-    title_bottom = int(target_h * 0.18)  # below title area
-    caption_top = int(target_h * (1.0 - caption_safe_pct))  # above caption area
+    # Platform-safe zone boundaries (pixels).
+    # Top 25%: title + status bar.  Bottom 27%: platform UI + caption zone.
+    # Cards live in the 25-60% main content band (above caption zone at ~73%).
+    content_top = int(target_h * 0.25)       # below title area
+    content_bottom = int(target_h * (1.0 - caption_safe_pct))  # above platform UI
 
     # Overlay cards — pre-compute arrays and positions
     card_arrays = []
@@ -569,10 +574,11 @@ def _make_dynamic_slide_clip(
         cx = int(pos_frac[0] * target_w)
         cy = int(pos_frac[1] * target_h)
 
-        # Clamp: keep card below title and above caption zone
-        cy = max(cy, title_bottom)
-        cy = min(cy, caption_top - ch)
-        cx = max(0, min(cx, target_w - cw))
+        # Clamp: keep card within the main content band (25-73%)
+        cy = max(cy, content_top)
+        cy = min(cy, content_bottom - ch)
+        # Keep card away from right-side platform buttons (like/comment/share)
+        cx = max(0, min(cx, int(target_w * 0.89) - cw))
 
         card_positions_px.append((cx, cy))
 
@@ -882,7 +888,7 @@ def build_video_with_searched_images(
     padding: float = 0.8,
     cutout_queries: list[str] | None = None,
     ken_burns: bool = True,
-    caption_safe_pct: float = 0.15,
+    caption_safe_pct: float = 0.27,
 ) -> dict:
     """Build a narrated MP4 using web-searched background images.
 
@@ -1161,7 +1167,7 @@ def build_video_from_slides(
     use_ai_images: bool = False,
     use_web_images: bool = False,
     ken_burns: bool = True,
-    caption_safe_pct: float = 0.15,
+    caption_safe_pct: float = 0.27,
 ) -> dict:
     """Full pipeline: generate script → (optionally images) → audio → video.
 

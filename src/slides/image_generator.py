@@ -414,16 +414,23 @@ def _draw_branded_frame(
     total_slides: int,
     handle: str,
 ):
-    """Draw consistent branded frame: accent bars, counter pill, handle."""
-    # Top accent bar
-    bar_h = max(int(h * 0.004), 3)
-    draw.rectangle([0, 0, w, bar_h], fill=accent_c)
+    """Draw consistent branded frame: accent bars, counter pill, handle.
 
-    # Bottom accent bar (thicker)
-    bottom_bar_h = max(int(h * 0.005), 4)
-    draw.rectangle([0, h - bottom_bar_h, w, h], fill=accent_c)
+    Platform-safe placement (1080x1920):
+      - Counter pill: top-left, within the 8-25% title zone
+      - Handle: at ~70% from top (inside the caption zone, above platform UI)
+      - Accent bars: top edge and at the 73% boundary
+    """
+    # Top accent bar (at top of safe zone, ~8% from top)
+    bar_y = int(h * 0.078)
+    bar_h = max(int(h * 0.003), 3)
+    draw.rectangle([0, bar_y, w, bar_y + bar_h], fill=accent_c)
 
-    # Slide counter pill (top-right)
+    # Lower accent bar at the content/caption boundary (~73% from top)
+    lower_bar_y = int(h * 0.73)
+    draw.rectangle([0, lower_bar_y, w, lower_bar_y + bar_h], fill=(*accent_c, 80))
+
+    # Slide counter pill (top-left, within title zone)
     counter_font = _load_font("sans_bold", int(w * 0.032))
     counter_text = f"{slide_index + 1}/{total_slides}"
     counter_bbox = counter_font.getbbox(counter_text)
@@ -432,8 +439,8 @@ def _draw_branded_frame(
 
     pill_pad_x = int(w * 0.025)
     pill_pad_y = int(h * 0.008)
-    pill_x = w - int(w * 0.08) - counter_tw - pill_pad_x
-    pill_y = int(h * 0.035)
+    pill_x = w - int(w * 0.15) - counter_tw - pill_pad_x  # away from right buttons
+    pill_y = int(h * 0.085)
     pill_w = counter_tw + pill_pad_x * 2
     pill_h = counter_th + pill_pad_y * 2
 
@@ -450,12 +457,12 @@ def _draw_branded_frame(
         fill=(255, 255, 255),
     )
 
-    # Handle at bottom center
+    # Handle in the caption zone (~70% from top, above platform UI)
     handle_font = _load_font("sans", int(w * 0.028))
     handle_bbox = handle_font.getbbox(handle)
     handle_tw = handle_bbox[2] - handle_bbox[0]
     handle_x = (w - handle_tw) // 2
-    handle_y = h - int(h * 0.045)
+    handle_y = int(h * 0.71)
     draw.text((handle_x + 2, handle_y + 2), handle, font=handle_font, fill=(0, 0, 0))
     draw.text((handle_x, handle_y), handle, font=handle_font, fill=(200, 200, 200))
 
@@ -1000,28 +1007,42 @@ def _layout_title_only(
     h: int,
 ):
     """Minimal layout: just the title at the top. Used when external captions
-    carry the script body, so only a short heading is needed on-screen."""
+    carry the script body, so only a short heading is needed on-screen.
+
+    Platform-safe zones (1080x1920):
+      - Top 8% (0-150px): status bar / platform header → start below this
+      - 8-25% (150-480px): title zone → title must fit entirely here
+      - Right 11% (x>960): platform action buttons → limit text width to 900px
+    """
     draw = ImageDraw.Draw(img)
     highlight_c = _hex_to_tuple(colors.get("highlight", "#FF5757"))
 
     margin = int(w * 0.07)
-    content_w = w - 2 * margin
+    # Cap content width to ~900px to avoid platform action buttons on the right
+    content_w = min(w - 2 * margin, int(w * 0.83))
 
     title = slide.get("title", "")
     if not title:
         return
 
-    title_size = int(w * 0.09)
+    # Title must fit within 8-25% of frame height (150-480px on 1920)
+    header_top = int(h * 0.08)
+    header_bottom = int(h * 0.25)
+    max_title_h = header_bottom - header_top
+
+    title_size = int(w * 0.08)
     title_font = _load_font("sans_bold", title_size)
     title_lines = _wrap_text(title, title_font, content_w)
-    while len(title_lines) > 2 and title_size > 64:
-        title_size -= 6
-        title_font = _load_font("sans_bold", title_size)
-        title_lines = _wrap_text(title, title_font, content_w)
-
-    title_y = int(h * 0.08)
     line_h = int(title_size * 1.3)
 
+    # Shrink until title fits within the header zone
+    while len(title_lines) * line_h > max_title_h and title_size > 48:
+        title_size -= 4
+        title_font = _load_font("sans_bold", title_size)
+        title_lines = _wrap_text(title, title_font, content_w)
+        line_h = int(title_size * 1.3)
+
+    title_y = header_top
     for line in title_lines:
         _draw_shadowed_text(
             draw, (margin, title_y), line, title_font,
@@ -1177,7 +1198,7 @@ def composite_slide_layers(
         bg_scale: Factor to upscale background (1.20 = 20% extra room for
             zoom/pan animation).
         caption_safe_pct: Fraction of frame height to reserve at the bottom
-            for externally generated captions (e.g. 0.15 = bottom 15% clear).
+            for platform UI + external captions (e.g. 0.27 = bottom 27% clear).
         title_only: If True, render only the title at the top instead of
             the full role-specific layout. Use when external captions carry
             the script body.
