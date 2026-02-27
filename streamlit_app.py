@@ -52,6 +52,7 @@ from src.slides.video_builder import (
 from src.slides.image_generator import generate_slide_images
 
 
+@st.cache_data
 def load_config(path: str = "config.yaml") -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
@@ -430,6 +431,36 @@ def _get_live_slides() -> list[dict]:
     return live
 
 
+@st.cache_data
+def _read_file_bytes(path: str, _mtime: float) -> bytes:
+    """Read file bytes, cached by path and modification time."""
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _cached_read(path: str) -> bytes:
+    """Read file bytes using cache keyed on modification time."""
+    return _read_file_bytes(path, os.path.getmtime(path))
+
+
+@st.cache_data
+def _build_zip_bytes(paths: tuple[str, ...], _mtimes: tuple[float, ...]) -> bytes:
+    """Build a ZIP archive in memory, cached by file paths and mtimes."""
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for p in paths:
+            zf.write(p, os.path.basename(p))
+    return buf.getvalue()
+
+
+def _cached_zip(paths: list[str]) -> bytes:
+    """Build a ZIP archive using cache keyed on file modification times."""
+    path_tuple = tuple(paths)
+    mtime_tuple = tuple(os.path.getmtime(p) for p in paths)
+    return _build_zip_bytes(path_tuple, mtime_tuple)
+
+
 # ── Session state defaults ────────────────────────────────────────────────────
 
 for key, default in {
@@ -515,6 +546,9 @@ if st.session_state.step > 1:
             if key != "step":
                 del st.session_state[key]
         st.session_state.step = 1
+        # Clear file caches to free memory
+        _read_file_bytes.clear()
+        _build_zip_bytes.clear()
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1465,8 +1499,7 @@ elif st.session_state.step == 6:
 
         if filepath:
             st.divider()
-            with open(filepath, "rb") as f:
-                pptx_bytes = f.read()
+            pptx_bytes = _cached_read(filepath)
             st.download_button(
                 label="Download PPTX",
                 data=pptx_bytes,
@@ -1486,15 +1519,10 @@ elif st.session_state.step == 6:
                 col.image(p, caption=f"Slide {i + 1}", use_container_width=True)
 
             # ZIP download
-            import zipfile
-            zip_buf = io.BytesIO()
-            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for p in png_paths:
-                    zf.write(p, os.path.basename(p))
-            zip_buf.seek(0)
+            zip_bytes = _cached_zip(png_paths)
             st.download_button(
                 label="Download All PNGs (ZIP)",
-                data=zip_buf,
+                data=zip_bytes,
                 file_name="slides.zip",
                 mime="application/zip",
                 type="primary",
@@ -1507,15 +1535,14 @@ elif st.session_state.step == 6:
                 dl_cols = st.columns(min(len(png_paths), 3))
                 for i, p in enumerate(png_paths):
                     col = dl_cols[i % 3]
-                    with open(p, "rb") as f:
-                        col.download_button(
-                            label=f"Slide {i + 1}",
-                            data=f.read(),
-                            file_name=os.path.basename(p),
-                            mime="image/png",
-                            key=f"png_dl_{i}",
-                            use_container_width=True,
-                        )
+                    col.download_button(
+                        label=f"Slide {i + 1}",
+                        data=_cached_read(p),
+                        file_name=os.path.basename(p),
+                        mime="image/png",
+                        key=f"png_dl_{i}",
+                        use_container_width=True,
+                    )
 
         # ── Alternative Versions ──────────────────────────────────────────
         st.divider()
@@ -1562,15 +1589,10 @@ elif st.session_state.step == 6:
                     for j, p in enumerate(alt_png_paths):
                         col = alt_img_cols[j % len(alt_img_cols)]
                         col.image(p, caption=f"Slide {j + 1}", use_container_width=True)
-                    import zipfile as _zf
-                    alt_zip = io.BytesIO()
-                    with _zf.ZipFile(alt_zip, "w", _zf.ZIP_DEFLATED) as zf:
-                        for p in alt_png_paths:
-                            zf.write(p, os.path.basename(p))
-                    alt_zip.seek(0)
+                    alt_zip_bytes = _cached_zip(alt_png_paths)
                     st.download_button(
                         label=f"Download {alt['version']} (ZIP)",
-                        data=alt_zip,
+                        data=alt_zip_bytes,
                         file_name=f"{alt['version'].replace(' ', '_').lower()}.zip",
                         mime="application/zip",
                         key=f"alt_zip_{alt['version']}",
@@ -1644,15 +1666,10 @@ elif st.session_state.step == 6:
                     for i, prompt in enumerate(st.session_state.ai_image_prompts):
                         st.markdown(f"**Slide {i + 1}:** {prompt}")
 
-                import zipfile as _ai_zf
-                ai_zip = io.BytesIO()
-                with _ai_zf.ZipFile(ai_zip, "w", _ai_zf.ZIP_DEFLATED) as zf:
-                    for p in st.session_state.ai_image_paths:
-                        zf.write(p, os.path.basename(p))
-                ai_zip.seek(0)
+                ai_zip_bytes = _cached_zip(st.session_state.ai_image_paths)
                 st.download_button(
                     label="Download AI Slides (ZIP)",
-                    data=ai_zip,
+                    data=ai_zip_bytes,
                     file_name="ai_slides.zip",
                     mime="application/zip",
                     type="primary",
@@ -1839,16 +1856,15 @@ elif st.session_state.step == 6:
             if st.session_state.video_path and os.path.exists(st.session_state.video_path):
                 st.markdown("---")
                 st.video(st.session_state.video_path)
-                with open(st.session_state.video_path, "rb") as f:
-                    st.download_button(
-                        label="Download MP4",
-                        data=f.read(),
-                        file_name="narrated_slides.mp4",
-                        mime="video/mp4",
-                        type="primary",
-                        use_container_width=True,
-                        key="video_dl",
-                    )
+                st.download_button(
+                    label="Download MP4",
+                    data=_cached_read(st.session_state.video_path),
+                    file_name="narrated_slides.mp4",
+                    mime="video/mp4",
+                    type="primary",
+                    use_container_width=True,
+                    key="video_dl",
+                )
                 if st.session_state.video_search_results:
                     with st.expander("Image Search Results"):
                         for query, status in st.session_state.video_search_results.items():
