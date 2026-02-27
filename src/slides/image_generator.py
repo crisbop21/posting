@@ -1011,7 +1011,7 @@ def _layout_title_only(
 
     Platform-safe zones (1080x1920):
       - Top 8% (0-150px): status bar / platform header → start below this
-      - 8-25% (150-480px): title zone → title must fit entirely here
+      - 8-20% (150-384px): title zone → title must fit entirely here
       - Right 11% (x>960): platform action buttons → limit text width to 900px
     """
     draw = ImageDraw.Draw(img)
@@ -1025,9 +1025,9 @@ def _layout_title_only(
     if not title:
         return
 
-    # Title must fit within 8-25% of frame height (150-480px on 1920)
+    # Title must fit within 8-20% of frame height (150-384px on 1920)
     header_top = int(h * 0.08)
-    header_bottom = int(h * 0.25)
+    header_bottom = int(h * 0.20)
     max_title_h = header_bottom - header_top
 
     title_size = int(w * 0.08)

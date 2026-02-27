@@ -8,12 +8,12 @@ Pipeline:
 
 Dynamic slide mode (web images):
   - Rotating backgrounds: multiple web images crossfade under Ken Burns motion
-  - Overlay cards: cropped images pop in synced to key words in the voiceover
-  - Sound effects: subtle whoosh/pop synced to visual changes
-  - Caption safe zone: bottom 27% kept clear for platform UI + external subtitles
+  - Big foreground image: always visible in 36-73% zone, crossfades on voice cues
+  - Sound effects: subtle whoosh synced to visual changes
+  - Layout: title (8-20%), captions (20-36%), image (36-73%), platform UI (73-100%)
 
 Visual events are aligned to the voiceover rather than a fixed clock:
-  - Stats/numbers in the script trigger overlay card pop-ins
+  - Stats/numbers in the script trigger foreground image transitions
   - Sentence boundaries trigger background transitions
   - Fallback to even spacing when timestamps are unavailable
 """
@@ -424,27 +424,22 @@ def _generate_whoosh_sfx(path, sample_rate=44100):
     _write_wav(path, signal, sample_rate)
 
 
-# ── Overlay Card Preparation ────────────────────────────────────────────────
+# ── Foreground Image Preparation ────────────────────────────────────────────
 
-# Positions for overlay cards (x_frac, y_frac) — top-left corner.
-# Two alternating positions within the 25-73% content band.
-# Cards rotate between these two spots (left ↔ right).
-CARD_POSITIONS = [
-    (0.06, 0.35),   # Left-center
-    (0.52, 0.35),   # Right-center
-]
+# Single centered foreground image position within the 36-73% image zone.
+FG_IMAGE_POS = (0.08, 0.36)  # (x_frac, y_frac) — centered horizontally
 
 
-def _prepare_overlay_card(img, card_w, card_h, corner_radius=18, border=3):
-    """Crop and style a web image as a rounded overlay card with border.
+def _prepare_fg_image(img, fg_w, fg_h, corner_radius=24):
+    """Crop and style a web image as a big foreground image with rounded corners.
 
     Returns an RGBA PIL Image ready for compositing.
     """
     from PIL import Image, ImageDraw
 
-    # Center-crop to card aspect ratio
+    # Center-crop to target aspect ratio
     src_w, src_h = img.size
-    target_ratio = card_w / card_h
+    target_ratio = fg_w / fg_h
     src_ratio = src_w / src_h
 
     if src_ratio > target_ratio:
@@ -456,33 +451,16 @@ def _prepare_overlay_card(img, card_w, card_h, corner_radius=18, border=3):
         y = (src_h - new_h) // 2
         img = img.crop((0, y, src_w, y + new_h))
 
-    img = img.resize((card_w, card_h), Image.Resampling.LANCZOS).convert("RGBA")
+    img = img.resize((fg_w, fg_h), Image.Resampling.LANCZOS).convert("RGBA")
 
-    # Rounded-corner mask for the photo
-    mask = Image.new("L", (card_w, card_h), 0)
+    # Rounded-corner mask
+    mask = Image.new("L", (fg_w, fg_h), 0)
     ImageDraw.Draw(mask).rounded_rectangle(
-        [0, 0, card_w - 1, card_h - 1], radius=corner_radius, fill=255,
+        [0, 0, fg_w - 1, fg_h - 1], radius=corner_radius, fill=255,
     )
-
-    # Card with white border
-    total_w = card_w + 2 * border
-    total_h = card_h + 2 * border
-    card = Image.new("RGBA", (total_w, total_h), (255, 255, 255, 0))
-
-    # Border mask (rounded, slightly larger)
-    border_mask = Image.new("L", (total_w, total_h), 0)
-    ImageDraw.Draw(border_mask).rounded_rectangle(
-        [0, 0, total_w - 1, total_h - 1],
-        radius=corner_radius + border, fill=255,
-    )
-    border_fill = Image.new("RGBA", (total_w, total_h), (255, 255, 255, 180))
-    card = Image.composite(border_fill, card, border_mask)
-
-    # Paste the photo inside the border
     img.putalpha(mask)
-    card.paste(img, (border, border), img)
 
-    return card
+    return img
 
 
 # ── Dynamic Slide Clip ───────────────────────────────────────────────────────
@@ -491,33 +469,35 @@ def _prepare_overlay_card(img, card_w, card_h, corner_radius=18, border=3):
 def _make_dynamic_slide_clip(
     treated_bgs,
     overlay_rgba,
-    card_images,
+    fg_images,
     target_w,
     target_h,
     duration,
     base_motion="zoom_in",
-    card_times=None,
+    fg_change_times=None,
     bg_change_times=None,
-    card_hold=1.8,
+    fg_crossfade=0.3,
     bg_crossfade=0.4,
     caption_safe_pct=0.27,
 ):
-    """Create an animated slide clip with rotating backgrounds and overlay cards.
+    """Create an animated slide clip with rotating backgrounds and foreground images.
 
-    Visual events are timed by explicit timestamps (synced to the voiceover)
-    rather than fixed intervals. If card_times / bg_change_times are None,
-    falls back to evenly-spaced timing.
+    Layout zones (1080x1920):
+      - 8-20%: title (text overlay)
+      - 20-36%: captions (external, kept clear)
+      - 36-73%: big foreground image (crossfades on voice cues)
+      - 73-100%: platform UI (kept clear)
 
     Args:
         treated_bgs: List of oversized PIL Images (blurred + gradient).
-        overlay_rgba: RGBA PIL Image at target size (text + frame + fg).
-        card_images: List of RGBA PIL Images (pre-processed overlay cards).
+        overlay_rgba: RGBA PIL Image at target size (text + frame).
+        fg_images: List of RGBA PIL Images (big foreground images).
         target_w, target_h: Output frame dimensions.
         duration: Total clip duration in seconds.
         base_motion: Primary Ken Burns motion for the first segment.
-        card_times: Explicit pop-in times for each overlay card (voice-synced).
+        fg_change_times: Explicit crossfade times between foreground images.
         bg_change_times: Explicit transition times between backgrounds.
-        card_hold: How long (seconds) each card stays visible.
+        fg_crossfade: Duration of crossfade between foreground images.
         bg_crossfade: Duration of crossfade between backgrounds.
     """
     import numpy as np
@@ -525,12 +505,14 @@ def _make_dynamic_slide_clip(
     from PIL import Image
 
     # Fallback to even spacing if no explicit times
-    if card_times is None:
-        interval = 2.0
-        card_times = [
-            i * interval for i in range(len(card_images))
+    if fg_change_times is None and len(fg_images) > 1:
+        interval = max(2.0, duration / len(fg_images))
+        fg_change_times = [
+            i * interval for i in range(1, len(fg_images))
             if i * interval < duration - 0.5
         ]
+    if fg_change_times is None:
+        fg_change_times = []
     if bg_change_times is None:
         bg_interval = max(3.0, duration / max(len(treated_bgs), 1))
         bg_change_times = [
@@ -552,31 +534,15 @@ def _make_dynamic_slide_clip(
     text_alpha = ov[:, :, 3:4].astype(np.float32) / 255.0
     text_rgb = ov[:, :, :3].astype(np.float32)
 
-    # Platform-safe zone boundaries (pixels).
-    # Top 25%: title + status bar.  Bottom 27%: platform UI + caption zone.
-    # Cards live in the 25-60% main content band (above caption zone at ~73%).
-    content_top = int(target_h * 0.25)       # below title area
-    content_bottom = int(target_h * (1.0 - caption_safe_pct))  # above platform UI
+    # Foreground images — pre-compute arrays and position
+    fg_arrays = []
+    for fg_img in fg_images:
+        fg_arr = np.array(fg_img.convert("RGBA")).astype(np.float32)
+        fg_arrays.append(fg_arr)
 
-    # Overlay cards — pre-compute arrays and positions
-    card_arrays = []
-    card_positions_px = []
-    for i, card_img in enumerate(card_images):
-        card_arr = np.array(card_img.convert("RGBA"))
-        card_arrays.append(card_arr)
-        ch, cw = card_arr.shape[:2]
-
-        pos_frac = CARD_POSITIONS[i % len(CARD_POSITIONS)]
-        cx = int(pos_frac[0] * target_w)
-        cy = int(pos_frac[1] * target_h)
-
-        # Clamp: keep card within the main content band (25-73%)
-        cy = max(cy, content_top)
-        cy = min(cy, content_bottom - ch)
-        # Keep card away from right-side platform buttons (like/comment/share)
-        cx = max(0, min(cx, int(target_w * 0.89) - cw))
-
-        card_positions_px.append((cx, cy))
+    # Foreground image position (centered in 36-73% zone)
+    fg_x = int(FG_IMAGE_POS[0] * target_w)
+    fg_y = int(FG_IMAGE_POS[1] * target_h)
 
     n_bgs = len(bg_arrays)
 
@@ -631,53 +597,47 @@ def _make_dynamic_slide_clip(
                     )
                     bg_frame = bg_frame * (1.0 - cf) + bg_next * cf
 
-        # ── 2. OVERLAY CARD LAYER (voice-synced pop-ins) ──
+        # ── 2. FOREGROUND IMAGE LAYER (always visible, crossfade rotation) ──
         frame = bg_frame.copy()
 
-        if card_arrays:
-            # Find which card is currently visible
-            active_card = -1
-            t_card_local = 0.0
-            for ci, ct in enumerate(card_times):
-                if ci < len(card_arrays) and ct <= t < ct + card_hold:
-                    active_card = ci
-                    t_card_local = t - ct
-                    break
+        if fg_arrays:
+            n_fg = len(fg_arrays)
+            # Determine current and next image from fg_change_times
+            seg = sum(1 for ft in fg_change_times if t >= ft)
+            seg = min(seg, n_fg - 1)
 
-            if active_card >= 0:
-                fade_in = 0.2
-                fade_out = 0.2
-                if t_card_local < fade_in:
-                    fade = t_card_local / fade_in
-                elif t_card_local > card_hold - fade_out:
-                    fade = max(0.0, (card_hold - t_card_local) / fade_out)
-                else:
-                    fade = 1.0
+            cur_fg = fg_arrays[seg]
+            ch, cw = int(cur_fg.shape[0]), int(cur_fg.shape[1])
 
-                if fade > 0.01:
-                    card = card_arrays[active_card]
-                    cx, cy = card_positions_px[active_card]
-                    ch, cw = card.shape[:2]
+            # Check for crossfade to next image
+            blend = 0.0
+            next_seg = seg + 1
+            if seg < len(fg_change_times) and next_seg < n_fg:
+                time_to_change = fg_change_times[seg] - t
+                if 0 < time_to_change < fg_crossfade:
+                    blend = 1.0 - time_to_change / fg_crossfade
 
-                    y1 = max(0, cy)
-                    x1 = max(0, cx)
-                    y2 = min(target_h, cy + ch)
-                    x2 = min(target_w, cx + cw)
-                    sy1 = y1 - cy
-                    sx1 = x1 - cx
-                    sy2 = sy1 + (y2 - y1)
-                    sx2 = sx1 + (x2 - x1)
+            # Composite foreground image onto frame
+            y1 = max(0, fg_y)
+            x1 = max(0, fg_x)
+            y2 = min(target_h, fg_y + ch)
+            x2 = min(target_w, fg_x + cw)
+            sy1 = y1 - fg_y
+            sx1 = x1 - fg_x
+            sy2 = sy1 + (y2 - y1)
+            sx2 = sx1 + (x2 - x1)
 
-                    card_slice = card[sy1:sy2, sx1:sx2]
-                    card_a = (
-                        card_slice[:, :, 3:4].astype(np.float32) / 255.0 * fade
-                    )
-                    card_rgb = card_slice[:, :, :3].astype(np.float32)
+            fg_slice = cur_fg[sy1:sy2, sx1:sx2]
+            if blend > 0.01 and next_seg < n_fg:
+                next_fg = fg_arrays[next_seg]
+                next_slice = next_fg[sy1:sy2, sx1:sx2]
+                fg_slice = fg_slice * (1.0 - blend) + next_slice * blend
 
-                    region = frame[y1:y2, x1:x2]
-                    frame[y1:y2, x1:x2] = (
-                        region * (1.0 - card_a) + card_rgb * card_a
-                    )
+            fg_a = fg_slice[:, :, 3:4] / 255.0
+            fg_rgb = fg_slice[:, :, :3]
+
+            region = frame[y1:y2, x1:x2]
+            frame[y1:y2, x1:x2] = region * (1.0 - fg_a) + fg_rgb * fg_a
 
         # ── 3. TEXT OVERLAY (always on top) ──
         result = frame * (1.0 - text_alpha) + text_rgb * text_alpha
@@ -965,9 +925,9 @@ def build_video_with_searched_images(
     #          or ("static", png_path)
     slide_visuals = []
 
-    # Overlay card dimensions — uniform size, ~40% of frame width
-    card_w = int(img_w * 0.40)
-    card_h = int(card_w * 0.75)  # 4:3 landscape
+    # Foreground image dimensions — big image in the 36-73% zone
+    fg_w = int(img_w * 0.84)    # ~907px on 1080
+    fg_h = int(img_h * 0.35)    # ~672px on 1920 (covers 36-71%)
 
     accent_hex = colors.get("accent", "#F7B731")
 
@@ -976,16 +936,16 @@ def build_video_with_searched_images(
         role = get_slide_role(i, len(slides))
 
         if images and ken_burns:
-            # Split images: first 2-3 as backgrounds, rest as overlay cards
-            if len(images) >= 4:
-                bg_imgs = images[:3]
-                card_imgs = images[3:]
-            elif len(images) >= 2:
+            # Split images: first 2 as backgrounds, rest as foreground rotation
+            if len(images) >= 3:
                 bg_imgs = images[:2]
-                card_imgs = images[2:]
+                fg_imgs = images[2:]
+            elif len(images) >= 2:
+                bg_imgs = images[:1]
+                fg_imgs = images[1:]
             else:
                 bg_imgs = images[:1]
-                card_imgs = []
+                fg_imgs = images[:1]  # use same image as fallback
 
             # Treat each background (blur + gradient + upscale)
             treated_bgs = [
@@ -1006,13 +966,13 @@ def build_video_with_searched_images(
                 title_only=True,
             )
 
-            # Prepare overlay cards
-            cards = [
-                _prepare_overlay_card(img, card_w, card_h)
-                for img in card_imgs
+            # Prepare foreground images
+            fg_prepared = [
+                _prepare_fg_image(img, fg_w, fg_h)
+                for img in fg_imgs
             ]
 
-            slide_visuals.append(("dynamic", treated_bgs, overlay, cards, role))
+            slide_visuals.append(("dynamic", treated_bgs, overlay, fg_prepared, role))
 
             # Save static preview for reference (title-only to match video)
             preview = composite_slide(
@@ -1067,30 +1027,32 @@ def build_video_with_searched_images(
             duration = max(vo_clip.duration + padding, min_duration)
 
             if visual[0] == "dynamic":
-                _, treated_bgs, overlay, cards, role = visual
+                _, treated_bgs, overlay, fg_prepared, role = visual
                 motion = ROLE_MOTION.get(role, "drift")
                 if role == "context" and i % 2 == 1:
                     motion = "pan_left"
 
                 # Extract voice-synced cue times (or None → even spacing)
-                card_times, bg_change_times = _extract_visual_cues(
+                # n_cards = n_fg - 1 (number of transitions between images)
+                n_fg_transitions = max(0, len(fg_prepared) - 1)
+                fg_change_times, bg_change_times = _extract_visual_cues(
                     script=script,
                     char_starts=char_starts,
                     char_ends=char_ends,
                     duration=duration,
-                    n_cards=len(cards),
+                    n_cards=n_fg_transitions,
                     n_bgs=len(treated_bgs),
                 )
 
                 clip = _make_dynamic_slide_clip(
                     treated_bgs=treated_bgs,
                     overlay_rgba=overlay,
-                    card_images=cards,
+                    fg_images=fg_prepared,
                     target_w=img_w,
                     target_h=img_h,
                     duration=duration,
                     base_motion=motion,
-                    card_times=card_times,
+                    fg_change_times=fg_change_times,
                     bg_change_times=bg_change_times,
                     caption_safe_pct=caption_safe_pct,
                 )
@@ -1099,17 +1061,13 @@ def build_video_with_searched_images(
                 audio_parts = [vo_clip]
 
                 # Resolve actual timing (may be voice-synced or fallback)
-                actual_card_times = card_times or [
-                    j * 2.0 for j in range(len(cards))
-                    if j * 2.0 < duration - 0.3
-                ]
+                actual_fg_times = fg_change_times or []
                 actual_bg_times = bg_change_times or []
 
-                sfx_paths_list = [pop_sfx_path, whoosh_sfx_path]
-                for ci, ct in enumerate(actual_card_times):
-                    if ct < duration - 0.3:
-                        sfx_path = sfx_paths_list[ci % len(sfx_paths_list)]
-                        sfx = AudioFileClip(sfx_path).with_start(ct)
+                # Whoosh on foreground image transitions
+                for ft in actual_fg_times:
+                    if ft < duration - 0.3:
+                        sfx = AudioFileClip(whoosh_sfx_path).with_start(ft)
                         audio_parts.append(sfx)
 
                 for bt in actual_bg_times:
