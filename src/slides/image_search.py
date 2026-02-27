@@ -315,6 +315,45 @@ def search_and_download_images(
     return results
 
 
+def search_and_download_all_images(
+    queries: list[str],
+    per_query: int = 8,
+    orientation: str = "portrait",
+    target_size: tuple[int, int] = (1080, 1920),
+) -> list[tuple[str, list[Image.Image]]]:
+    """Search and download ALL available images for each query.
+
+    Unlike search_and_download_images which returns only the first match,
+    this returns every successfully downloaded image per query. Used for
+    rotating backgrounds and overlay cards in dynamic video slides.
+
+    Returns:
+        List of (query, [images]) tuples. The images list may be empty.
+    """
+    provider = get_available_provider()
+    print(f"[image_search] Using {provider} for bulk image search")
+
+    results = []
+    for i, query in enumerate(queries):
+        if i > 0:
+            time.sleep(1)
+
+        search_results = search_images(query, count=per_query, orientation=orientation)
+
+        images = []
+        for result in search_results:
+            img = download_image(result["url"])
+            if img is not None:
+                img = img.convert("RGBA")
+                img = img.resize(target_size, Image.Resampling.LANCZOS)
+                images.append(img)
+
+        print(f"[image_search] Slide {i + 1}: downloaded {len(images)} images for '{query}'")
+        results.append((query, images))
+
+    return results
+
+
 # ── Transparent PNG Cutout Search ────────────────────────────────────────────
 
 
