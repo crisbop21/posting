@@ -1127,6 +1127,7 @@ def composite_slide_layers(
     foreground: Optional[Image.Image] = None,
     bg_scale: float = 1.20,
     caption_safe_pct: float = 0.0,
+    skip_text: bool = False,
 ) -> tuple[Image.Image, Image.Image]:
     """Render slide as separate background + overlay for animated compositing.
 
@@ -1139,11 +1140,14 @@ def composite_slide_layers(
             zoom/pan animation).
         caption_safe_pct: Fraction of frame height to reserve at the bottom
             for externally generated captions (e.g. 0.15 = bottom 15% clear).
+        skip_text: If True, omit the text layout layer (Layer 5). Use when
+            external captions will carry the script to avoid duplicate text.
 
     Returns:
         (treated_bg, text_overlay):
         - treated_bg: Blurred + gradient background at bg_scale x target size.
-        - text_overlay: RGBA image at target size with foreground, frame, text.
+        - text_overlay: RGBA image at target size with foreground, frame
+          (and text unless skip_text=True).
     """
     w, h = bg_image.size
     accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
@@ -1165,9 +1169,10 @@ def composite_slide_layers(
     draw = ImageDraw.Draw(overlay)
     _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
 
-    # Layer 5: Role-specific text layout
-    layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
-    layout_fn(overlay, slide, colors, w, h)
+    # Layer 5: Role-specific text layout (skipped when using external captions)
+    if not skip_text:
+        layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
+        layout_fn(overlay, slide, colors, w, h)
 
     # Clear caption safe zone at bottom (for external subtitle overlays)
     if caption_safe_pct > 0:

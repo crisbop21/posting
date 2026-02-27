@@ -978,7 +978,7 @@ def build_video_with_searched_images(
                 for img in bg_imgs
             ]
 
-            # Render text overlay (using the first bg for reference sizing)
+            # Render overlay (frame + foreground, no text — captions carry the script)
             _, overlay = composite_slide_layers(
                 bg_image=bg_imgs[0],
                 slide=slide,
@@ -988,6 +988,7 @@ def build_video_with_searched_images(
                 handle=handle,
                 foreground=foreground,
                 caption_safe_pct=caption_safe_pct,
+                skip_text=True,
             )
 
             # Prepare overlay cards
