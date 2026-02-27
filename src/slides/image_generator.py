@@ -1095,6 +1095,28 @@ def composite_slide(
     return img
 
 
+def treat_background(
+    bg_image: Image.Image,
+    target_w: int,
+    target_h: int,
+    accent_hex: str,
+    role: str,
+    bg_scale: float = 1.20,
+) -> Image.Image:
+    """Apply blur + gradient treatment and upscale for Ken Burns animation.
+
+    Returns an oversized treated image (target_size * bg_scale).
+    """
+    accent_c = _hex_to_tuple(accent_hex)
+    scaled_w = int(target_w * bg_scale)
+    scaled_h = int(target_h * bg_scale)
+    bg = bg_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+    blur_radius = 18 if role == "hook" else 14
+    bg = _blur_background(bg, radius=blur_radius)
+    bg = _gradient_overlay(bg, accent_c, role=role)
+    return bg
+
+
 def composite_slide_layers(
     bg_image: Image.Image,
     slide: dict,
@@ -1104,6 +1126,7 @@ def composite_slide_layers(
     handle: str = "@cristian.bojaca",
     foreground: Optional[Image.Image] = None,
     bg_scale: float = 1.20,
+    caption_safe_pct: float = 0.0,
 ) -> tuple[Image.Image, Image.Image]:
     """Render slide as separate background + overlay for animated compositing.
 
@@ -1114,6 +1137,8 @@ def composite_slide_layers(
     Args:
         bg_scale: Factor to upscale background (1.20 = 20% extra room for
             zoom/pan animation).
+        caption_safe_pct: Fraction of frame height to reserve at the bottom
+            for externally generated captions (e.g. 0.15 = bottom 15% clear).
 
     Returns:
         (treated_bg, text_overlay):
@@ -1125,13 +1150,9 @@ def composite_slide_layers(
     role = get_slide_role(slide_index, total_slides)
 
     # --- Layers 1-2: Treated background (oversized for Ken Burns room) ---
-    scaled_w = int(w * bg_scale)
-    scaled_h = int(h * bg_scale)
-    bg_oversized = bg_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
-
-    blur_radius = 18 if role == "hook" else 14
-    bg_treated = _blur_background(bg_oversized, radius=blur_radius)
-    bg_treated = _gradient_overlay(bg_treated, accent_c, role=role)
+    bg_treated = treat_background(
+        bg_image, w, h, colors.get("accent", "#F7B731"), role, bg_scale,
+    )
 
     # --- Layers 3-5: Text overlay (target size, transparent canvas) ---
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -1147,6 +1168,12 @@ def composite_slide_layers(
     # Layer 5: Role-specific text layout
     layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
     layout_fn(overlay, slide, colors, w, h)
+
+    # Clear caption safe zone at bottom (for external subtitle overlays)
+    if caption_safe_pct > 0:
+        zone_h = int(h * caption_safe_pct)
+        clear_draw = ImageDraw.Draw(overlay)
+        clear_draw.rectangle([0, h - zone_h, w, h], fill=(0, 0, 0, 0))
 
     return bg_treated, overlay
 
