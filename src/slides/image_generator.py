@@ -992,6 +992,44 @@ def _layout_cta(
     )
 
 
+def _layout_title_only(
+    img: Image.Image,
+    slide: dict,
+    colors: dict,
+    w: int,
+    h: int,
+):
+    """Minimal layout: just the title at the top. Used when external captions
+    carry the script body, so only a short heading is needed on-screen."""
+    draw = ImageDraw.Draw(img)
+    highlight_c = _hex_to_tuple(colors.get("highlight", "#FF5757"))
+
+    margin = int(w * 0.07)
+    content_w = w - 2 * margin
+
+    title = slide.get("title", "")
+    if not title:
+        return
+
+    title_size = int(w * 0.09)
+    title_font = _load_font("sans_bold", title_size)
+    title_lines = _wrap_text(title, title_font, content_w)
+    while len(title_lines) > 2 and title_size > 64:
+        title_size -= 6
+        title_font = _load_font("sans_bold", title_size)
+        title_lines = _wrap_text(title, title_font, content_w)
+
+    title_y = int(h * 0.08)
+    line_h = int(title_size * 1.3)
+
+    for line in title_lines:
+        _draw_shadowed_text(
+            draw, (margin, title_y), line, title_font,
+            highlight_c, shadow_offset=4,
+        )
+        title_y += line_h
+
+
 # Layout dispatcher
 _LAYOUT_FUNCS = {
     "hook": _layout_hook,
@@ -1127,7 +1165,7 @@ def composite_slide_layers(
     foreground: Optional[Image.Image] = None,
     bg_scale: float = 1.20,
     caption_safe_pct: float = 0.0,
-    skip_text: bool = False,
+    title_only: bool = False,
 ) -> tuple[Image.Image, Image.Image]:
     """Render slide as separate background + overlay for animated compositing.
 
@@ -1140,14 +1178,15 @@ def composite_slide_layers(
             zoom/pan animation).
         caption_safe_pct: Fraction of frame height to reserve at the bottom
             for externally generated captions (e.g. 0.15 = bottom 15% clear).
-        skip_text: If True, omit the text layout layer (Layer 5). Use when
-            external captions will carry the script to avoid duplicate text.
+        title_only: If True, render only the title at the top instead of
+            the full role-specific layout. Use when external captions carry
+            the script body.
 
     Returns:
         (treated_bg, text_overlay):
         - treated_bg: Blurred + gradient background at bg_scale x target size.
-        - text_overlay: RGBA image at target size with foreground, frame
-          (and text unless skip_text=True).
+        - text_overlay: RGBA image at target size with foreground, frame,
+          and text (title-only or full layout).
     """
     w, h = bg_image.size
     accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
@@ -1169,8 +1208,10 @@ def composite_slide_layers(
     draw = ImageDraw.Draw(overlay)
     _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
 
-    # Layer 5: Role-specific text layout (skipped when using external captions)
-    if not skip_text:
+    # Layer 5: Text layout (title-only when captions carry the script body)
+    if title_only:
+        _layout_title_only(overlay, slide, colors, w, h)
+    else:
         layout_fn = _LAYOUT_FUNCS.get(role, _layout_context)
         layout_fn(overlay, slide, colors, w, h)
 
