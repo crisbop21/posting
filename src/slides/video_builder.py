@@ -501,6 +501,7 @@ def _make_dynamic_slide_clip(
     bg_change_times=None,
     card_hold=1.8,
     bg_crossfade=0.4,
+    caption_safe_pct=0.15,
 ):
     """Create an animated slide clip with rotating backgrounds and overlay cards.
 
@@ -552,15 +553,27 @@ def _make_dynamic_slide_clip(
     text_alpha = ov[:, :, 3:4].astype(np.float32) / 255.0
     text_rgb = ov[:, :, :3].astype(np.float32)
 
+    # Safe zone boundaries (pixels) — cards must stay within these
+    title_bottom = int(target_h * 0.18)  # below title area
+    caption_top = int(target_h * (1.0 - caption_safe_pct))  # above caption area
+
     # Overlay cards — pre-compute arrays and positions
     card_arrays = []
     card_positions_px = []
     for i, card_img in enumerate(card_images):
         card_arr = np.array(card_img.convert("RGBA"))
         card_arrays.append(card_arr)
+        ch, cw = card_arr.shape[:2]
+
         pos_frac = CARD_POSITIONS[i % len(CARD_POSITIONS)]
         cx = int(pos_frac[0] * target_w)
         cy = int(pos_frac[1] * target_h)
+
+        # Clamp: keep card below title and above caption zone
+        cy = max(cy, title_bottom)
+        cy = min(cy, caption_top - ch)
+        cx = max(0, min(cx, target_w - cw))
+
         card_positions_px.append((cx, cy))
 
     n_bgs = len(bg_arrays)
@@ -1075,6 +1088,7 @@ def build_video_with_searched_images(
                     base_motion=motion,
                     card_times=card_times,
                     bg_change_times=bg_change_times,
+                    caption_safe_pct=caption_safe_pct,
                 )
 
                 # Build audio: voiceover + SFX synced to visual events
