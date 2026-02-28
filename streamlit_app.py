@@ -39,6 +39,8 @@ from src.content.generator import (
     generate_image_prompts,
     generate_video_script,
     generate_image_search_queries,
+    generate_overlay_prompts,
+    OVERLAY_STYLE_DESCRIPTIONS,
 )
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
@@ -49,7 +51,10 @@ from src.slides.video_builder import (
     build_video_with_ai_images,
     build_video_with_searched_images,
 )
-from src.slides.image_generator import generate_slide_images
+from src.slides.image_generator import (
+    generate_slide_images,
+    CINEMATIC_OVERLAY_PRESETS,
+)
 
 
 @st.cache_data
@@ -489,6 +494,9 @@ for key, default in {
     "video_search_results": {},
     "ai_image_paths": [],
     "ai_image_prompts": [],
+    "ai_overlay_prompts": [],
+    "overlay_style": "auto",
+    "overlays_enabled": False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -1624,6 +1632,53 @@ elif st.session_state.step == 6:
 
             live_slides = _get_live_slides()
 
+            # ── Cinematic Overlay Options ──────────────────────────────
+            with st.expander("Cinematic Overlay Options", expanded=False):
+                st.markdown(
+                    "Add AI-generated cinematic overlays on top of backgrounds for "
+                    "professional depth and atmosphere. Inspired by cinema camera "
+                    "techniques: bokeh, light leaks, film grain, volumetric lighting."
+                )
+                overlay_enabled = st.checkbox(
+                    "Enable AI cinematic overlays",
+                    value=st.session_state.overlays_enabled,
+                    key="overlay_toggle",
+                    help="Generates a second AI image per slide for atmospheric effects.",
+                )
+                st.session_state.overlays_enabled = overlay_enabled
+
+                if overlay_enabled:
+                    overlay_style_options = list(OVERLAY_STYLE_DESCRIPTIONS.keys())
+                    overlay_style_labels = {
+                        "auto": "Auto (recommended) — best style per slide",
+                        "cinematic_bokeh": "Cinematic Bokeh — shallow DOF, 85mm f/1.2",
+                        "light_leak": "Light Leak — warm amber film exposure",
+                        "film_noir": "Film Noir — high contrast, deep shadows",
+                        "volumetric_light": "Volumetric Light — god rays, atmospheric haze",
+                        "neon_glow": "Neon Glow — cyberpunk neon reflections",
+                        "golden_hour": "Golden Hour — warm sunset, lens flare",
+                        "film_grain": "Film Grain — 35mm Kodak analog texture",
+                    }
+                    selected_style = st.selectbox(
+                        "Overlay style",
+                        options=overlay_style_options,
+                        format_func=lambda x: overlay_style_labels.get(x, x),
+                        index=0,
+                        key="overlay_style_select",
+                    )
+                    st.session_state.overlay_style = selected_style
+
+                    st.caption(
+                        "**How it works:** Claude generates cinematic overlay prompts "
+                        "based on each slide's content and mood. The AI creates atmospheric "
+                        "images (bokeh orbs, light rays, film grain, etc.) which are "
+                        "post-processed with blur, color temperature shifts, bloom, and "
+                        "edge fading, then composited at ~30-40% opacity to add depth "
+                        "without obscuring text. Overlays are strongest at edges and "
+                        "subtler in the center where text sits."
+                    )
+            # ──────────────────────────────────────────────────────────
+
             if st.button("Generate AI Slide Images", type="primary", use_container_width=True, key="gen_ai_imgs"):
                 if google_ai_key:
                     os.environ["GOOGLE_AI_API_KEY"] = google_ai_key
@@ -1632,7 +1687,30 @@ elif st.session_state.step == 6:
                     os.environ["OPENAI_API_KEY"] = openai_img_key
                     os.environ.pop("GOOGLE_AI_API_KEY", None)
                 _require_api_key()
-                with st.spinner("Generating image prompts and AI images... This may take 30-60s."):
+
+                overlay_prompts_list = None
+                effective_overlay_style = st.session_state.get("overlay_style", "auto")
+
+                if st.session_state.overlays_enabled:
+                    with st.spinner("Generating cinematic overlay prompts..."):
+                        try:
+                            overlay_prompts_list = generate_overlay_prompts(
+                                slides=live_slides,
+                                topic=st.session_state.selected_topic["title"] if st.session_state.selected_topic else "",
+                                angle=st.session_state.get("angle", ""),
+                                overlay_style=effective_overlay_style,
+                            )
+                            st.session_state.ai_overlay_prompts = overlay_prompts_list
+                        except Exception as exc:
+                            st.warning(f"Overlay prompt generation failed (will proceed without overlays): {exc}")
+                            overlay_prompts_list = None
+
+                spinner_msg = "Generating image prompts and AI images"
+                if overlay_prompts_list:
+                    spinner_msg += " + cinematic overlays"
+                spinner_msg += "... This may take 30-60s."
+
+                with st.spinner(spinner_msg):
                     try:
                         image_prompts = generate_image_prompts(
                             slides=live_slides,
@@ -1646,6 +1724,8 @@ elif st.session_state.step == 6:
                             aspect_ratio=aspect_ratio_val,
                             output_dir="./output",
                             handle=handle,
+                            overlay_prompts=overlay_prompts_list,
+                            overlay_style=effective_overlay_style,
                         )
                         st.session_state.ai_image_paths = ai_paths
                         st.session_state.ai_image_prompts = image_prompts
@@ -1665,6 +1745,11 @@ elif st.session_state.step == 6:
                 with st.expander("Image Prompts"):
                     for i, prompt in enumerate(st.session_state.ai_image_prompts):
                         st.markdown(f"**Slide {i + 1}:** {prompt}")
+
+                if st.session_state.ai_overlay_prompts:
+                    with st.expander("Cinematic Overlay Prompts"):
+                        for i, prompt in enumerate(st.session_state.ai_overlay_prompts):
+                            st.markdown(f"**Slide {i + 1}:** {prompt}")
 
                 ai_zip_bytes = _cached_zip(st.session_state.ai_image_paths)
                 st.download_button(
@@ -1824,6 +1909,19 @@ elif st.session_state.step == 6:
                                 image_prompts = generate_image_prompts(
                                     slides=live_slides, topic=_topic, angle=_angle,
                                 )
+                                # Generate overlay prompts if enabled
+                                vid_overlay_prompts = None
+                                vid_overlay_style = st.session_state.get("overlay_style", "auto")
+                                if st.session_state.get("overlays_enabled"):
+                                    try:
+                                        vid_overlay_prompts = generate_overlay_prompts(
+                                            slides=live_slides,
+                                            topic=_topic,
+                                            angle=_angle,
+                                            overlay_style=vid_overlay_style,
+                                        )
+                                    except Exception:
+                                        vid_overlay_prompts = None
                                 video_path = build_video_with_ai_images(
                                     slides=live_slides,
                                     scripts=edited_scripts,
@@ -1833,6 +1931,8 @@ elif st.session_state.step == 6:
                                     output_dir="./output",
                                     handle=handle,
                                     voice_id=elevenlabs_voice,
+                                    overlay_prompts=vid_overlay_prompts,
+                                    overlay_style=vid_overlay_style,
                                 )
                                 st.session_state.video_path = video_path
 
