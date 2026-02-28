@@ -1254,23 +1254,20 @@ def build_video_from_slides(
         )
         result["image_prompts"] = image_prompts
 
-        # Build video with AI images through the dynamic pipeline
-        ai_result = build_video_with_searched_images(
+        # Build video with AI images
+        video_path = build_video_with_ai_images(
             slides=slides,
             scripts=scripts,
-            search_queries=image_prompts,
+            image_prompts=image_prompts,
             colors=colors,
             aspect_ratio=aspect_ratio,
             output_dir=output_dir,
             handle=handle,
             voice_id=voice_id,
-            ken_burns=ken_burns,
-            caption_safe_pct=caption_safe_pct,
-            cinematic_overlays=cinematic_overlays,
-            image_source="ai",
+            overlay_prompts=overlay_prompts,
+            overlay_style=overlay_style,
         )
-        result["video_path"] = ai_result["video_path"]
-        result["search_results"] = ai_result["search_results"]
+        result["video_path"] = video_path
     else:
         # Build video with standard PNG slides
         video_path = build_video(
