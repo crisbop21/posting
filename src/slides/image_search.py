@@ -218,6 +218,35 @@ def download_image(url: str, timeout: int = 20) -> Optional[Image.Image]:
         return None
 
 
+# ── DALL-E Fallback ──────────────────────────────────────────────────────
+
+
+def _dalle_fallback(
+    query: str,
+    target_size: tuple[int, int] = (1080, 1920),
+) -> Optional[Image.Image]:
+    """Generate an image with DALL-E when web search finds nothing.
+
+    Only attempts if OPENAI_API_KEY is set. Returns None otherwise.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+
+    try:
+        from src.slides.image_generator import _generate_dalle
+
+        width, height = target_size
+        print(f"[image_search] DALL-E fallback for '{query}'")
+        img_bytes = _generate_dalle(query, width, height, api_key)
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+        img = img.resize(target_size, Image.Resampling.LANCZOS)
+        return img
+    except Exception as exc:
+        print(f"[image_search] DALL-E fallback failed for '{query}': {exc}")
+        return None
+
+
 # ── Unified Search ────────────────────────────────────────────────────────────
 
 
@@ -308,7 +337,11 @@ def search_and_download_images(
                 break
 
         if downloaded is None:
-            print(f"[image_search] Slide {i + 1}: no image found for '{query}'")
+            downloaded = _dalle_fallback(query, target_size)
+            if downloaded is not None:
+                print(f"[image_search] Slide {i + 1}: DALL-E fallback for '{query}'")
+            else:
+                print(f"[image_search] Slide {i + 1}: no image found for '{query}'")
 
         results.append((query, downloaded))
 
@@ -348,7 +381,16 @@ def search_and_download_all_images(
                 img = img.resize(target_size, Image.Resampling.LANCZOS)
                 images.append(img)
 
-        print(f"[image_search] Slide {i + 1}: downloaded {len(images)} images for '{query}'")
+        if not images:
+            fallback_img = _dalle_fallback(query, target_size)
+            if fallback_img is not None:
+                images.append(fallback_img)
+                print(f"[image_search] Slide {i + 1}: DALL-E fallback for '{query}'")
+            else:
+                print(f"[image_search] Slide {i + 1}: no images found for '{query}'")
+        else:
+            print(f"[image_search] Slide {i + 1}: downloaded {len(images)} images for '{query}'")
+
         results.append((query, images))
 
     return results
