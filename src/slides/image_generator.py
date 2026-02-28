@@ -1640,3 +1640,53 @@ def generate_slide_images(
         paths.append(out_path)
 
     return paths
+
+
+def generate_all_ai_images(
+    prompts: list[str],
+    per_prompt: int = 3,
+    target_size: tuple[int, int] = (1080, 1920),
+) -> list[tuple[str, list[Image.Image]]]:
+    """Generate multiple AI images per prompt for the dynamic video pipeline.
+
+    Drop-in replacement for search_and_download_all_images: returns the same
+    ``list[(prompt, [PIL images])]`` format so the downstream compositing
+    pipeline (Ken Burns, bg/fg split, treat_background, etc.) works unchanged.
+
+    Args:
+        prompts: One image-generation prompt per slide.
+        per_prompt: Number of images to generate per slide (default 3:
+            2 backgrounds + 1 foreground card).
+        target_size: (width, height) to resize generated images to.
+
+    Returns:
+        List of (prompt, [Image]) tuples, one per slide.
+    """
+    results: list[tuple[str, list[Image.Image]]] = []
+    width, height = target_size
+
+    for i, prompt in enumerate(prompts):
+        images: list[Image.Image] = []
+        for j in range(per_prompt):
+            if i > 0 or j > 0:
+                time.sleep(2)  # Rate-limit spacing between API calls
+            try:
+                # Vary the prompt slightly for visual diversity
+                if j == 0:
+                    gen_prompt = prompt
+                else:
+                    gen_prompt = f"{prompt}, alternative angle, different composition"
+
+                img_bytes = generate_image(
+                    prompt=gen_prompt, width=width, height=height,
+                )
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+                img = img.resize(target_size, Image.Resampling.LANCZOS)
+                images.append(img)
+            except Exception as exc:
+                print(f"  Warning: AI image {j + 1}/{per_prompt} failed for slide {i + 1}: {exc}")
+
+        print(f"[ai_images] Slide {i + 1}: generated {len(images)} images for prompt")
+        results.append((prompt, images))
+
+    return results

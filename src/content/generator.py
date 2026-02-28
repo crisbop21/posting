@@ -1172,9 +1172,17 @@ Generate ONE image prompt per slide. Each prompt should describe a cinematic, vi
 2. Uses finance-themed imagery: trading floors, stock tickers, cityscapes, charts, currency, corporate boardrooms, Federal Reserve building, Wall Street, tech offices
 3. Is photorealistic and cinematic — think movie poster or documentary still
 4. Includes lighting direction (e.g., "dramatic golden hour lighting", "neon-lit", "cold blue fluorescent")
-5. Never includes text, logos, watermarks, or UI elements
+5. NEVER includes text, numbers, letters, logos, watermarks, UI elements, or any written content — this is CRITICAL
 6. Is 20-40 words — specific enough for good results, not overly detailed
 7. Varies across slides — don't repeat the same scene
+8. Describes a concrete, real-world SCENE — NOT abstract concepts or data visualizations
+9. Uses clean composition with visual depth — avoid cluttered or busy scenes
+10. Favors wide or medium shots with shallow depth of field — the image will have text overlaid on top, so it needs breathing room and contrast
+
+IMPORTANT — These images will be used as backgrounds in a video with text overlaid. They must:
+- Be visually clean with areas of uniform tone (dark or blurred) where text can sit
+- Show real-world scenes (people, places, objects) — NOT charts, graphs, or infographics
+- Have NO text, labels, numbers, tickers, or any rendered characters in the image itself
 
 Style keywords to use: "cinematic", "photorealistic", "shallow depth of field", "dramatic lighting", "8k", "editorial photography"
 
