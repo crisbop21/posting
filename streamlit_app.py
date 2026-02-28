@@ -48,6 +48,7 @@ from src.slides.png_builder import build_pngs
 from src.slides.png_builder import build_style_alternatives
 from src.slides.video_builder import (
     build_video,
+    build_video_with_ai_images,
     build_video_with_searched_images,
 )
 from src.slides.image_generator import (
@@ -1910,20 +1911,32 @@ elif st.session_state.step == 6:
                                 image_prompts = generate_image_prompts(
                                     slides=live_slides, topic=_topic, angle=_angle,
                                 )
-                                ai_result = build_video_with_searched_images(
+                                # Generate overlay prompts if enabled
+                                vid_overlay_prompts = None
+                                vid_overlay_style = st.session_state.get("overlay_style", "auto")
+                                if st.session_state.get("overlays_enabled"):
+                                    try:
+                                        vid_overlay_prompts = generate_overlay_prompts(
+                                            slides=live_slides,
+                                            topic=_topic,
+                                            angle=_angle,
+                                            overlay_style=vid_overlay_style,
+                                        )
+                                    except Exception:
+                                        vid_overlay_prompts = None
+                                video_path = build_video_with_ai_images(
                                     slides=live_slides,
                                     scripts=edited_scripts,
-                                    search_queries=image_prompts,
+                                    image_prompts=image_prompts,
                                     colors=colors,
                                     aspect_ratio=aspect_ratio_val,
                                     output_dir="./output",
                                     handle=handle,
                                     voice_id=elevenlabs_voice,
-                                    image_source="ai",
+                                    overlay_prompts=vid_overlay_prompts,
+                                    overlay_style=vid_overlay_style,
                                 )
-                                st.session_state.video_path = ai_result["video_path"]
-                                st.session_state.video_search_queries = image_prompts
-                                st.session_state.video_search_results = ai_result["search_results"]
+                                st.session_state.video_path = video_path
 
                             else:
                                 video_path = build_video(
