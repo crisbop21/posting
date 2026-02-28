@@ -761,11 +761,17 @@ def build_video_with_ai_images(
     crossfade: float = 0.3,
     min_duration: float = 4.0,
     padding: float = 0.8,
+    overlay_prompts: list[str] | None = None,
+    overlay_style: str = "auto",
 ) -> str:
     """Build a narrated MP4 using AI-generated background images.
 
     Same as build_video() but uses AI-generated images composited
     with slide text instead of plain PNG slides.
+
+    Args:
+        overlay_prompts: Optional cinematic overlay prompts per slide.
+        overlay_style: Cinematic overlay style preset or 'auto'.
     """
     mp = _ensure_moviepy()
     from moviepy import (
@@ -785,6 +791,8 @@ def build_video_with_ai_images(
         aspect_ratio=aspect_ratio,
         output_dir=output_dir,
         handle=handle,
+        overlay_prompts=overlay_prompts,
+        overlay_style=overlay_style,
     )
 
     # Step 2: Synthesize audio per slide and assemble
@@ -845,6 +853,7 @@ def build_video_with_searched_images(
     cutout_queries: list[str] | None = None,
     ken_burns: bool = True,
     caption_safe_pct: float = 0.27,
+    cinematic_overlays: list | None = None,
 ) -> dict:
     """Build a narrated MP4 using web-searched background images.
 
@@ -859,6 +868,8 @@ def build_video_with_searched_images(
         cutout_queries: Optional search terms for transparent PNG foreground
             cutouts (one per slide). If None, skips cutout search.
         ken_burns: If True, animate backgrounds with Ken Burns motion.
+        cinematic_overlays: Optional list of RGBA PIL Images (cinematic
+            overlays from generate_ai_overlay), one per slide.
         caption_safe_pct: Fraction of frame height reserved for captions
             at the bottom (0.15 = 15%). Set to 0 to use the full frame.
 
@@ -933,6 +944,7 @@ def build_video_with_searched_images(
 
     for i, (slide, (query, images)) in enumerate(zip(slides, image_results)):
         foreground = cutout_images[i] if i < len(cutout_images) else None
+        c_overlay = cinematic_overlays[i] if cinematic_overlays and i < len(cinematic_overlays) else None
         role = get_slide_role(i, len(slides))
 
         if images and ken_burns:
@@ -964,6 +976,7 @@ def build_video_with_searched_images(
                 foreground=foreground,
                 caption_safe_pct=caption_safe_pct,
                 title_only=True,
+                cinematic_overlay=c_overlay,
             )
 
             # Prepare foreground images
@@ -980,6 +993,7 @@ def build_video_with_searched_images(
                 total_slides=len(slides), colors=colors,
                 handle=handle, foreground=foreground,
                 title_only=True,
+                cinematic_overlay=c_overlay,
             )
             preview.save(
                 os.path.join(output_dir, f"web_slide_{i + 1:02d}.png"), "PNG",
@@ -993,6 +1007,7 @@ def build_video_with_searched_images(
                 total_slides=len(slides), colors=colors,
                 handle=handle, foreground=foreground,
                 title_only=True,
+                cinematic_overlay=c_overlay,
             )
             out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
             final.save(out_path, "PNG")
@@ -1124,6 +1139,8 @@ def build_video_from_slides(
     use_web_images: bool = False,
     ken_burns: bool = True,
     caption_safe_pct: float = 0.27,
+    use_overlays: bool = False,
+    overlay_style: str = "auto",
 ) -> dict:
     """Full pipeline: generate script → (optionally images) → audio → video.
 
@@ -1139,10 +1156,14 @@ def build_video_from_slides(
         ken_burns: If True and use_web_images=True, animate backgrounds
             with Ken Burns zoom/pan motion per slide role.
         caption_safe_pct: Fraction of frame height reserved for captions.
+        use_overlays: If True, generates AI cinematic overlay images
+            (bokeh, light leaks, film grain, etc.) for each slide.
+        overlay_style: Cinematic overlay style preset or 'auto'.
 
     Returns:
         Dict with 'video_path', 'scripts', and optionally
-        'image_prompts', 'search_queries', 'search_results' keys.
+        'image_prompts', 'overlay_prompts', 'search_queries',
+        'search_results' keys.
     """
     from src.content.generator import generate_video_script
 
@@ -1150,6 +1171,42 @@ def build_video_from_slides(
     scripts = generate_video_script(slides=slides, topic=topic, angle=angle)
 
     result = {"scripts": scripts}
+
+    # Generate cinematic overlay prompts if enabled
+    overlay_prompts = None
+    cinematic_overlays = None
+    if use_overlays:
+        from src.content.generator import generate_overlay_prompts
+        from src.slides.image_generator import generate_ai_overlay, get_slide_role
+
+        overlay_prompts = generate_overlay_prompts(
+            slides=slides, topic=topic, angle=angle,
+            overlay_style=overlay_style,
+        )
+        result["overlay_prompts"] = overlay_prompts
+
+        # For web_images path, pre-generate overlay PIL images
+        if use_web_images:
+            img_w = 1080 if aspect_ratio == "9:16" else 1920
+            img_h = 1920 if aspect_ratio == "9:16" else 1080
+            auto_styles = {
+                "hook": "volumetric_light",
+                "context": "cinematic_bokeh",
+                "payoff": "light_leak",
+                "cta": "golden_hour",
+            }
+            cinematic_overlays = []
+            for i, op in enumerate(overlay_prompts):
+                role = get_slide_role(i, len(slides))
+                eff_style = auto_styles.get(role, "cinematic_bokeh") if overlay_style == "auto" else overlay_style
+                try:
+                    co = generate_ai_overlay(
+                        prompt=op, width=img_w, height=img_h,
+                        style=eff_style, role=role,
+                    )
+                    cinematic_overlays.append(co)
+                except Exception:
+                    cinematic_overlays.append(None)
 
     if use_web_images:
         from src.content.generator import generate_image_search_queries
@@ -1172,6 +1229,7 @@ def build_video_from_slides(
             voice_id=voice_id,
             ken_burns=ken_burns,
             caption_safe_pct=caption_safe_pct,
+            cinematic_overlays=cinematic_overlays,
         )
         result["video_path"] = web_result["video_path"]
         result["search_results"] = web_result["search_results"]
@@ -1195,6 +1253,8 @@ def build_video_from_slides(
             output_dir=output_dir,
             handle=handle,
             voice_id=voice_id,
+            overlay_prompts=overlay_prompts,
+            overlay_style=overlay_style,
         )
         result["video_path"] = video_path
     else:

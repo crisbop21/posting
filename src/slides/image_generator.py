@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont
 
 from src.slides.png_builder import (
     _hex_to_tuple,
@@ -220,6 +220,272 @@ def generate_image(
         return _generate_gemini(enhanced_prompt, api_key)
     else:
         return _generate_dalle(prompt, width, height, api_key)
+
+
+# ── Cinematic Overlay Styles ────────────────────────────────────────────────
+
+# Post-processing presets applied to AI-generated overlays to give them
+# authentic cinematic character.  Each preset tweaks opacity, blur, color
+# temperature, and optional PIL effects.
+
+CINEMATIC_OVERLAY_PRESETS = {
+    "cinematic_bokeh": {
+        "opacity": 0.35,
+        "blur_radius": 6,
+        "color_temp": "warm",       # slight warm shift
+        "vignette": True,
+        "bloom": True,
+    },
+    "light_leak": {
+        "opacity": 0.30,
+        "blur_radius": 12,
+        "color_temp": "warm",
+        "vignette": False,
+        "bloom": True,
+    },
+    "film_noir": {
+        "opacity": 0.40,
+        "blur_radius": 2,
+        "color_temp": "cool",
+        "vignette": True,
+        "bloom": False,
+    },
+    "volumetric_light": {
+        "opacity": 0.30,
+        "blur_radius": 8,
+        "color_temp": "neutral",
+        "vignette": False,
+        "bloom": True,
+    },
+    "neon_glow": {
+        "opacity": 0.35,
+        "blur_radius": 4,
+        "color_temp": "cool",
+        "vignette": True,
+        "bloom": True,
+    },
+    "golden_hour": {
+        "opacity": 0.30,
+        "blur_radius": 6,
+        "color_temp": "warm",
+        "vignette": True,
+        "bloom": True,
+    },
+    "film_grain": {
+        "opacity": 0.25,
+        "blur_radius": 0,
+        "color_temp": "warm",
+        "vignette": True,
+        "bloom": False,
+    },
+}
+
+
+def _apply_color_temperature(img: Image.Image, temp: str) -> Image.Image:
+    """Shift color temperature: warm adds amber, cool adds blue."""
+    if temp == "neutral":
+        return img
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+
+    w, h = img.size
+    if temp == "warm":
+        tint = Image.new("RGBA", (w, h), (255, 180, 80, 18))
+    else:  # cool
+        tint = Image.new("RGBA", (w, h), (80, 140, 255, 18))
+    return Image.alpha_composite(img, tint)
+
+
+def _apply_vignette(img: Image.Image, strength: float = 0.4) -> Image.Image:
+    """Apply a soft radial vignette darkening toward the edges."""
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    w, h = img.size
+    vignette = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(vignette)
+    cx, cy = w // 2, h // 2
+    max_r = (cx ** 2 + cy ** 2) ** 0.5
+    # Draw concentric ellipses from edge inward
+    steps = 40
+    for i in range(steps):
+        t = i / steps  # 0 = center, 1 = edge
+        alpha = int(255 * strength * (t ** 2))
+        inset_x = int(w * 0.5 * (1 - t))
+        inset_y = int(h * 0.5 * (1 - t))
+        if inset_x <= 0 or inset_y <= 0:
+            draw.rectangle([0, 0, w, h], fill=(0, 0, 0, alpha))
+        else:
+            draw.ellipse(
+                [w // 2 - inset_x, h // 2 - inset_y,
+                 w // 2 + inset_x, h // 2 + inset_y],
+                fill=(0, 0, 0, 0),
+            )
+    # Simpler approach: radial gradient via line-by-line
+    vignette2 = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw2 = ImageDraw.Draw(vignette2)
+    for y in range(h):
+        for x in range(0, w, 4):  # step by 4 for performance
+            dx = (x - cx) / cx
+            dy = (y - cy) / cy
+            dist = min((dx * dx + dy * dy) ** 0.5, 1.0)
+            alpha = int(255 * strength * (dist ** 2.5))
+            draw2.rectangle([x, y, x + 3, y], fill=(0, 0, 0, alpha))
+    return Image.alpha_composite(img, vignette2)
+
+
+def _apply_bloom(img: Image.Image, intensity: float = 0.15) -> Image.Image:
+    """Add a soft bloom/glow to bright areas of the overlay."""
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    # Extract and blur bright areas
+    bright = img.copy()
+    enhancer = ImageEnhance.Brightness(bright)
+    bright = enhancer.enhance(1.5)
+    bloom = bright.filter(ImageFilter.GaussianBlur(radius=20))
+    # Reduce bloom opacity
+    bloom_data = bloom.split()
+    if len(bloom_data) == 4:
+        alpha_channel = bloom_data[3].point(lambda p: int(p * intensity))
+        bloom = Image.merge("RGBA", (*bloom_data[:3], alpha_channel))
+    return Image.alpha_composite(img, bloom)
+
+
+def _make_edge_fade(img: Image.Image, fade_pct: float = 0.15) -> Image.Image:
+    """Fade overlay to transparent toward edges, keeping center clear for text."""
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    w, h = img.size
+    mask = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(mask)
+
+    # Fade from edges inward
+    fade_x = int(w * fade_pct)
+    fade_y = int(h * fade_pct)
+
+    # Create gradient edges — center stays fully opaque, edges fade
+    # But we INVERT: center is more transparent, edges keep the overlay
+    # This keeps text readable while overlay effects frame the content
+    center_clear = int(w * 0.20)
+    center_clear_y = int(h * 0.15)
+
+    for y in range(h):
+        for x in range(0, w, 2):
+            # Distance from center (normalized 0-1)
+            dx = abs(x - w // 2) / (w // 2)
+            dy = abs(y - h // 2) / (h // 2)
+            # More transparent in center, opaque at edges
+            edge_factor = max(dx, dy)
+            alpha = int(255 * min(edge_factor ** 1.5 * 1.5, 1.0))
+            if alpha < 255:
+                draw.rectangle([x, y, x + 1, y], fill=alpha)
+
+    img.putalpha(mask)
+    return img
+
+
+def process_cinematic_overlay(
+    raw_overlay: Image.Image,
+    target_size: tuple[int, int],
+    style: str = "cinematic_bokeh",
+    role: str = "context",
+) -> Image.Image:
+    """Process a raw AI-generated image into a cinematic overlay layer.
+
+    Takes the raw AI output and applies cinematic post-processing to create
+    a transparent overlay that adds depth and atmosphere without obscuring
+    slide text.  Inspired by professional cinematography techniques:
+      - Bokeh and shallow DOF for focus (shot on 85mm f/1.2)
+      - Light leaks for organic film warmth
+      - Film grain for analog texture
+      - Volumetric light for atmosphere
+      - Edge fading to keep center clear for text readability
+
+    Args:
+        raw_overlay: Raw AI-generated image.
+        target_size: (width, height) to resize to.
+        style: Cinematic preset name from CINEMATIC_OVERLAY_PRESETS.
+        role: Slide role (hook/context/payoff/cta) for intensity tuning.
+
+    Returns:
+        RGBA Image with cinematic overlay ready for compositing.
+    """
+    preset = CINEMATIC_OVERLAY_PRESETS.get(style, CINEMATIC_OVERLAY_PRESETS["cinematic_bokeh"])
+
+    # Resize to target
+    img = raw_overlay.resize(target_size, Image.Resampling.LANCZOS)
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+
+    # Apply blur for depth-of-field simulation
+    if preset["blur_radius"] > 0:
+        # Blur only the RGB channels, preserve alpha
+        rgb = img.convert("RGB")
+        rgb = rgb.filter(ImageFilter.GaussianBlur(radius=preset["blur_radius"]))
+        rgb = rgb.convert("RGBA")
+        # Restore original alpha
+        r, g, b, _ = rgb.split()
+        _, _, _, a = img.split()
+        img = Image.merge("RGBA", (r, g, b, a))
+
+    # Apply color temperature
+    img = _apply_color_temperature(img, preset["color_temp"])
+
+    # Apply bloom/glow to bright areas
+    if preset.get("bloom"):
+        img = _apply_bloom(img, intensity=0.12)
+
+    # Fade edges: keep overlay strongest at edges/corners, lighter in center
+    img = _make_edge_fade(img, fade_pct=0.20)
+
+    # Apply vignette
+    if preset.get("vignette"):
+        img = _apply_vignette(img, strength=0.3)
+
+    # Set overall opacity — adjust by role for visual hierarchy
+    role_opacity_mult = {
+        "hook": 1.15,     # Slightly stronger for maximum first-impression impact
+        "context": 1.0,   # Standard — readable but atmospheric
+        "payoff": 1.1,    # Slightly elevated for emotional peak
+        "cta": 0.75,      # Reduced — keep CTA text clean and dominant
+    }
+    base_opacity = preset["opacity"]
+    final_opacity = base_opacity * role_opacity_mult.get(role, 1.0)
+    final_opacity = min(final_opacity, 0.50)  # Hard cap to protect readability
+
+    # Apply final opacity to alpha channel
+    r, g, b, a = img.split()
+    a = a.point(lambda p: int(p * final_opacity))
+    img = Image.merge("RGBA", (r, g, b, a))
+
+    return img
+
+
+def generate_ai_overlay(
+    prompt: str,
+    width: int = 1080,
+    height: int = 1920,
+    style: str = "cinematic_bokeh",
+    role: str = "context",
+) -> Image.Image:
+    """Generate a cinematic AI overlay image and apply post-processing.
+
+    End-to-end: generates raw image via AI provider, then applies cinematic
+    post-processing (blur, color temp, bloom, vignette, edge fade, opacity)
+    to produce a compositing-ready RGBA overlay.
+
+    Args:
+        prompt: Overlay image description (from generate_overlay_prompts).
+        width: Target width.
+        height: Target height.
+        style: Cinematic preset name.
+        role: Slide role for intensity tuning.
+
+    Returns:
+        RGBA Image ready to be composited onto a slide.
+    """
+    raw_bytes = generate_image(prompt=prompt, width=width, height=height)
+    raw_img = Image.open(io.BytesIO(raw_bytes))
+    return process_cinematic_overlay(raw_img, (width, height), style=style, role=role)
 
 
 # ── Slide Roles ──────────────────────────────────────────────────────────────
@@ -1107,15 +1373,17 @@ def composite_slide(
     handle: str = "@cristian.bojaca",
     foreground: Optional[Image.Image] = None,
     title_only: bool = False,
+    cinematic_overlay: Optional[Image.Image] = None,
 ) -> Image.Image:
-    """Composite a slide with the full 5-layer visual treatment.
+    """Composite a slide with the full 6-layer visual treatment.
 
     Layers (bottom to top):
       1. Background: blurred source image
       2. Gradient overlay: role-aware darkening + accent tint
-      3. Foreground subject: transparent PNG cutout (optional)
-      4. Branded frame: accent bars, counter pill, handle
-      5. Text: role-specific layout (or title-only when captions carry the body)
+      3. Cinematic overlay: AI-generated atmospheric effects (optional)
+      4. Foreground subject: transparent PNG cutout (optional)
+      5. Branded frame: accent bars, counter pill, handle
+      6. Text: role-specific layout (or title-only when captions carry the body)
 
     Args:
         bg_image: Source background image (will be blurred).
@@ -1127,6 +1395,8 @@ def composite_slide(
         foreground: Optional transparent PNG cutout to overlay.
         title_only: If True, render only the title at the top instead of
             the full role-specific layout.
+        cinematic_overlay: Optional RGBA cinematic overlay (bokeh, light
+            leaks, film grain, etc.) from generate_ai_overlay().
     """
     w, h = bg_image.size
     accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
@@ -1139,7 +1409,18 @@ def composite_slide(
     # Layer 2: Role-aware gradient overlay
     img = _gradient_overlay(img, accent_c, role=role)
 
-    # Layer 3: Foreground subject
+    # Layer 3: Cinematic overlay (AI-generated atmospheric effects)
+    if cinematic_overlay is not None:
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+        co = cinematic_overlay
+        if co.size != (w, h):
+            co = co.resize((w, h), Image.Resampling.LANCZOS)
+        if co.mode != "RGBA":
+            co = co.convert("RGBA")
+        img = Image.alpha_composite(img, co)
+
+    # Layer 4: Foreground subject
     if foreground is not None:
         img = _composite_foreground(img, foreground, role=role)
 
@@ -1147,10 +1428,10 @@ def composite_slide(
     img = img.convert("RGB")
     draw = ImageDraw.Draw(img)
 
-    # Layer 4: Branded frame
+    # Layer 5: Branded frame
     _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
 
-    # Layer 5: Text layout (title-only when captions carry the script body)
+    # Layer 6: Text layout (title-only when captions carry the script body)
     if title_only:
         _layout_title_only(img, slide, colors, w, h)
     else:
@@ -1193,6 +1474,7 @@ def composite_slide_layers(
     bg_scale: float = 1.20,
     caption_safe_pct: float = 0.0,
     title_only: bool = False,
+    cinematic_overlay: Optional[Image.Image] = None,
 ) -> tuple[Image.Image, Image.Image]:
     """Render slide as separate background + overlay for animated compositing.
 
@@ -1208,12 +1490,14 @@ def composite_slide_layers(
         title_only: If True, render only the title at the top instead of
             the full role-specific layout. Use when external captions carry
             the script body.
+        cinematic_overlay: Optional RGBA cinematic overlay (bokeh, light
+            leaks, film grain, etc.) from generate_ai_overlay().
 
     Returns:
         (treated_bg, text_overlay):
         - treated_bg: Blurred + gradient background at bg_scale x target size.
-        - text_overlay: RGBA image at target size with foreground, frame,
-          and text (title-only or full layout).
+        - text_overlay: RGBA image at target size with cinematic overlay,
+          foreground, frame, and text (title-only or full layout).
     """
     w, h = bg_image.size
     accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
@@ -1224,18 +1508,27 @@ def composite_slide_layers(
         bg_image, w, h, colors.get("accent", "#F7B731"), role, bg_scale,
     )
 
-    # --- Layers 3-5: Text overlay (target size, transparent canvas) ---
+    # --- Layers 3-6: Text overlay (target size, transparent canvas) ---
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
 
-    # Layer 3: Foreground subject
+    # Layer 3: Cinematic overlay (AI-generated atmospheric effects)
+    if cinematic_overlay is not None:
+        co = cinematic_overlay
+        if co.size != (w, h):
+            co = co.resize((w, h), Image.Resampling.LANCZOS)
+        if co.mode != "RGBA":
+            co = co.convert("RGBA")
+        overlay = Image.alpha_composite(overlay, co)
+
+    # Layer 4: Foreground subject
     if foreground is not None:
         overlay = _composite_foreground(overlay, foreground, role=role)
 
-    # Layer 4: Branded frame
+    # Layer 5: Branded frame
     draw = ImageDraw.Draw(overlay)
     _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
 
-    # Layer 5: Text layout (title-only when captions carry the script body)
+    # Layer 6: Text layout (title-only when captions carry the script body)
     if title_only:
         _layout_title_only(overlay, slide, colors, w, h)
     else:
@@ -1261,6 +1554,8 @@ def generate_slide_images(
     aspect_ratio: str = "9:16",
     output_dir: str = "./output",
     handle: str = "@cristian.bojaca",
+    overlay_prompts: list[str] | None = None,
+    overlay_style: str = "auto",
 ) -> list[str]:
     """Generate AI background images and composite with slide text.
 
@@ -1271,6 +1566,12 @@ def generate_slide_images(
         aspect_ratio: '9:16' or '16:9'.
         output_dir: Where to save the composited PNGs.
         handle: Social media handle.
+        overlay_prompts: Optional list of cinematic overlay prompts (one per
+            slide). When provided, generates AI overlay images for each slide
+            with cinematic post-processing (bokeh, light leaks, film grain).
+        overlay_style: Cinematic style preset for overlays. One of:
+            cinematic_bokeh, light_leak, film_noir, volumetric_light,
+            neon_glow, golden_hour, film_grain, or 'auto' to pick per slide.
 
     Returns:
         List of file paths to the composited PNG images.
@@ -1282,6 +1583,14 @@ def generate_slide_images(
 
     os.makedirs(output_dir, exist_ok=True)
     paths = []
+
+    # Auto-assign overlay styles per slide role when style is 'auto'
+    auto_styles = {
+        "hook": "volumetric_light",
+        "context": "cinematic_bokeh",
+        "payoff": "light_leak",
+        "cta": "golden_hour",
+    }
 
     for i, (slide, prompt) in enumerate(zip(slides, image_prompts)):
         # Small delay between requests to avoid rate limits
@@ -1297,6 +1606,23 @@ def generate_slide_images(
         bg_image = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
         bg_image = bg_image.resize((img_w, img_h), Image.Resampling.LANCZOS)
 
+        # Generate cinematic overlay if prompts provided
+        cinematic_overlay = None
+        if overlay_prompts and i < len(overlay_prompts):
+            role = get_slide_role(i, len(slides))
+            effective_style = auto_styles.get(role, "cinematic_bokeh") if overlay_style == "auto" else overlay_style
+            try:
+                time.sleep(2)  # Rate limit spacing
+                cinematic_overlay = generate_ai_overlay(
+                    prompt=overlay_prompts[i],
+                    width=img_w,
+                    height=img_h,
+                    style=effective_style,
+                    role=role,
+                )
+            except Exception as exc:
+                print(f"  Warning: overlay generation failed for slide {i + 1}: {exc}")
+
         # Composite slide text over AI background
         final = composite_slide(
             bg_image=bg_image,
@@ -1305,6 +1631,7 @@ def generate_slide_images(
             total_slides=len(slides),
             colors=colors,
             handle=handle,
+            cinematic_overlay=cinematic_overlay,
         )
 
         # Save

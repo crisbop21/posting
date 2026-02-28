@@ -261,10 +261,16 @@ def run(config_path: str = "config.yaml") -> None:
 
     # ── Build narrated video (if ElevenLabs key is set) ──────────────────
     video_cfg = config.get("video", {})
+    overlay_cfg = config.get("overlays", {})
     use_ai_images = video_cfg.get("ai_images", False) and os.environ.get("REPLICATE_API_TOKEN")
+    use_overlays = overlay_cfg.get("enabled", False) and (
+        os.environ.get("GOOGLE_AI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    )
+    overlay_style = overlay_cfg.get("style", "auto")
     if os.environ.get("ELEVENLABS_API_KEY"):
         ai_label = " with AI images" if use_ai_images else ""
-        print(f"\nBuilding narrated video{ai_label}...")
+        overlay_label = " + cinematic overlays" if use_overlays else ""
+        print(f"\nBuilding narrated video{ai_label}{overlay_label}...")
         try:
             video_result = build_video_from_slides(
                 slides=slides,
@@ -275,6 +281,8 @@ def run(config_path: str = "config.yaml") -> None:
                 output_dir=output_dir,
                 voice_id=video_cfg.get("voice_id", "pNInz6obpgDQGcFmaJgB"),
                 use_ai_images=use_ai_images,
+                use_overlays=use_overlays,
+                overlay_style=overlay_style,
             )
             print(f"  Video saved to: {video_result['video_path']}")
             print("\n── Voiceover Scripts ──")

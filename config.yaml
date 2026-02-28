@@ -79,6 +79,22 @@ images:
   # or "black-forest-labs/flux-1.1-pro" (best quality, ~$0.04/image)
   model: "black-forest-labs/flux-schnell"
 
+# AI-generated cinematic overlays (optional, same API key as AI images)
+# Adds atmospheric depth to slides: bokeh, light leaks, film grain, etc.
+overlays:
+  # Enable AI-generated cinematic overlays on top of slide backgrounds
+  enabled: false
+  # Cinematic style preset:
+  #   auto            — picks best style per slide role (recommended)
+  #   cinematic_bokeh — shallow DOF with beautiful bokeh orbs (85mm f/1.2)
+  #   light_leak      — warm amber/orange film light leak from edges
+  #   film_noir       — high contrast dramatic shadows, teal & orange grade
+  #   volumetric_light — god rays, dust particles, atmospheric haze
+  #   neon_glow       — cyberpunk neon reflections, electric blue/magenta
+  #   golden_hour     — warm sunset lighting with lens flare
+  #   film_grain      — authentic 35mm Kodak film texture
+  style: "auto"
+
 # Web image search (optional, for script-based video backgrounds)
 # Searches Pexels (if API key set) or DuckDuckGo (no key) for relevant photos
 image_search:
