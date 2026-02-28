@@ -854,8 +854,9 @@ def build_video_with_searched_images(
     ken_burns: bool = True,
     caption_safe_pct: float = 0.27,
     cinematic_overlays: list | None = None,
+    image_source: str = "web",
 ) -> dict:
-    """Build a narrated MP4 using web-searched background images.
+    """Build a narrated MP4 using web-searched or AI-generated background images.
 
     Full dynamic pipeline with voice-synced visual events:
       - Uses ElevenLabs /with-timestamps for character-level speech timing
@@ -872,6 +873,8 @@ def build_video_with_searched_images(
             overlays from generate_ai_overlay), one per slide.
         caption_safe_pct: Fraction of frame height reserved for captions
             at the bottom (0.15 = 15%). Set to 0 to use the full frame.
+        image_source: 'web' to search for stock photos, 'ai' to generate
+            images with AI. Both feed into the same compositing pipeline.
 
     Returns:
         Dict with 'video_path' and 'search_results' (query -> found/not found).
@@ -890,6 +893,7 @@ def build_video_with_searched_images(
     from src.slides.image_generator import (
         composite_slide,
         composite_slide_layers,
+        generate_all_ai_images,
         get_slide_role,
         treat_background,
     )
@@ -902,13 +906,20 @@ def build_video_with_searched_images(
 
     os.makedirs(output_dir, exist_ok=True)
 
-    # Step 1: Search and download ALL images per query (for bg rotation + cards)
-    image_results = search_and_download_all_images(
-        queries=search_queries,
-        per_query=8,
-        orientation="portrait" if aspect_ratio == "9:16" else "landscape",
-        target_size=(img_w, img_h),
-    )
+    # Step 1: Get images — either web search or AI generation
+    if image_source == "ai":
+        image_results = generate_all_ai_images(
+            prompts=search_queries,
+            per_prompt=3,
+            target_size=(img_w, img_h),
+        )
+    else:
+        image_results = search_and_download_all_images(
+            queries=search_queries,
+            per_query=8,
+            orientation="portrait" if aspect_ratio == "9:16" else "landscape",
+            target_size=(img_w, img_h),
+        )
 
     # Step 1b: Search for foreground cutouts (optional)
     cutout_images = [None] * len(slides)
@@ -1243,20 +1254,23 @@ def build_video_from_slides(
         )
         result["image_prompts"] = image_prompts
 
-        # Build video with AI images
-        video_path = build_video_with_ai_images(
+        # Build video with AI images through the dynamic pipeline
+        ai_result = build_video_with_searched_images(
             slides=slides,
             scripts=scripts,
-            image_prompts=image_prompts,
+            search_queries=image_prompts,
             colors=colors,
             aspect_ratio=aspect_ratio,
             output_dir=output_dir,
             handle=handle,
             voice_id=voice_id,
-            overlay_prompts=overlay_prompts,
-            overlay_style=overlay_style,
+            ken_burns=ken_burns,
+            caption_safe_pct=caption_safe_pct,
+            cinematic_overlays=cinematic_overlays,
+            image_source="ai",
         )
-        result["video_path"] = video_path
+        result["video_path"] = ai_result["video_path"]
+        result["search_results"] = ai_result["search_results"]
     else:
         # Build video with standard PNG slides
         video_path = build_video(
