@@ -293,44 +293,45 @@ def _apply_color_temperature(img: Image.Image, temp: str) -> Image.Image:
         tint = Image.new("RGBA", (w, h), (255, 180, 80, 18))
     else:  # cool
         tint = Image.new("RGBA", (w, h), (80, 140, 255, 18))
-    return Image.alpha_composite(img, tint)
+    result = Image.alpha_composite(img, tint)
+    tint.close()
+    return result
 
 
 def _apply_vignette(img: Image.Image, strength: float = 0.4) -> Image.Image:
-    """Apply a soft radial vignette darkening toward the edges."""
+    """Apply a soft radial vignette darkening toward the edges.
+
+    Uses numpy for efficient computation instead of pixel-by-pixel loops.
+    """
+    import numpy as np
+
     if img.mode != "RGBA":
         img = img.convert("RGBA")
     w, h = img.size
+
+    # Build radial distance map using numpy (vectorized, ~100x faster)
+    ys = np.linspace(-1, 1, h, dtype=np.float32)
+    xs = np.linspace(-1, 1, w, dtype=np.float32)
+    xx, yy = np.meshgrid(xs, ys)
+    dist = np.sqrt(xx * xx + yy * yy)
+    np.clip(dist, 0, 1, out=dist)
+
+    # Compute alpha mask: stronger at edges, zero at center
+    alpha = (255 * strength * np.power(dist, 2.5)).astype(np.uint8)
+
     vignette = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(vignette)
-    cx, cy = w // 2, h // 2
-    max_r = (cx ** 2 + cy ** 2) ** 0.5
-    # Draw concentric ellipses from edge inward
-    steps = 40
-    for i in range(steps):
-        t = i / steps  # 0 = center, 1 = edge
-        alpha = int(255 * strength * (t ** 2))
-        inset_x = int(w * 0.5 * (1 - t))
-        inset_y = int(h * 0.5 * (1 - t))
-        if inset_x <= 0 or inset_y <= 0:
-            draw.rectangle([0, 0, w, h], fill=(0, 0, 0, alpha))
-        else:
-            draw.ellipse(
-                [w // 2 - inset_x, h // 2 - inset_y,
-                 w // 2 + inset_x, h // 2 + inset_y],
-                fill=(0, 0, 0, 0),
-            )
-    # Simpler approach: radial gradient via line-by-line
-    vignette2 = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw2 = ImageDraw.Draw(vignette2)
-    for y in range(h):
-        for x in range(0, w, 4):  # step by 4 for performance
-            dx = (x - cx) / cx
-            dy = (y - cy) / cy
-            dist = min((dx * dx + dy * dy) ** 0.5, 1.0)
-            alpha = int(255 * strength * (dist ** 2.5))
-            draw2.rectangle([x, y, x + 3, y], fill=(0, 0, 0, alpha))
-    return Image.alpha_composite(img, vignette2)
+    vignette.putalpha(Image.fromarray(alpha, mode="L"))
+    # Set RGB to black (vignette darkens)
+    black = Image.new("RGB", (w, h), (0, 0, 0))
+    vignette = Image.merge("RGBA", (*black.split(), Image.fromarray(alpha, mode="L")))
+    result = Image.alpha_composite(img, vignette)
+
+    # Cleanup intermediates
+    vignette.close()
+    black.close()
+    del alpha, dist, xx, yy, xs, ys
+
+    return result
 
 
 def _apply_bloom(img: Image.Image, intensity: float = 0.15) -> Image.Image:
@@ -340,46 +341,50 @@ def _apply_bloom(img: Image.Image, intensity: float = 0.15) -> Image.Image:
     # Extract and blur bright areas
     bright = img.copy()
     enhancer = ImageEnhance.Brightness(bright)
-    bright = enhancer.enhance(1.5)
-    bloom = bright.filter(ImageFilter.GaussianBlur(radius=20))
+    bright_enhanced = enhancer.enhance(1.5)
+    bright.close()
+    bloom = bright_enhanced.filter(ImageFilter.GaussianBlur(radius=20))
+    bright_enhanced.close()
     # Reduce bloom opacity
     bloom_data = bloom.split()
     if len(bloom_data) == 4:
         alpha_channel = bloom_data[3].point(lambda p: int(p * intensity))
-        bloom = Image.merge("RGBA", (*bloom_data[:3], alpha_channel))
-    return Image.alpha_composite(img, bloom)
+        bloom_final = Image.merge("RGBA", (*bloom_data[:3], alpha_channel))
+        bloom.close()
+        bloom = bloom_final
+    result = Image.alpha_composite(img, bloom)
+    bloom.close()
+    return result
 
 
 def _make_edge_fade(img: Image.Image, fade_pct: float = 0.15) -> Image.Image:
-    """Fade overlay to transparent toward edges, keeping center clear for text."""
+    """Fade overlay to transparent toward edges, keeping center clear for text.
+
+    Uses numpy for efficient computation instead of pixel-by-pixel loops.
+    Center is more transparent, edges keep the overlay — protects text readability.
+    """
+    import numpy as np
+
     if img.mode != "RGBA":
         img = img.convert("RGBA")
     w, h = img.size
-    mask = Image.new("L", (w, h), 255)
-    draw = ImageDraw.Draw(mask)
 
-    # Fade from edges inward
-    fade_x = int(w * fade_pct)
-    fade_y = int(h * fade_pct)
+    # Build distance-from-center maps using numpy (vectorized)
+    ys = np.abs(np.linspace(-1, 1, h, dtype=np.float32))
+    xs = np.abs(np.linspace(-1, 1, w, dtype=np.float32))
+    xx, yy = np.meshgrid(xs, ys)
 
-    # Create gradient edges — center stays fully opaque, edges fade
-    # But we INVERT: center is more transparent, edges keep the overlay
-    # This keeps text readable while overlay effects frame the content
-    center_clear = int(w * 0.20)
-    center_clear_y = int(h * 0.15)
+    # More transparent in center, opaque at edges
+    edge_factor = np.maximum(xx, yy)
+    alpha = (255 * np.minimum(np.power(edge_factor, 1.5) * 1.5, 1.0)).astype(np.uint8)
 
-    for y in range(h):
-        for x in range(0, w, 2):
-            # Distance from center (normalized 0-1)
-            dx = abs(x - w // 2) / (w // 2)
-            dy = abs(y - h // 2) / (h // 2)
-            # More transparent in center, opaque at edges
-            edge_factor = max(dx, dy)
-            alpha = int(255 * min(edge_factor ** 1.5 * 1.5, 1.0))
-            if alpha < 255:
-                draw.rectangle([x, y, x + 1, y], fill=alpha)
-
+    mask = Image.fromarray(alpha, mode="L")
     img.putalpha(mask)
+
+    # Cleanup
+    mask.close()
+    del alpha, edge_factor, xx, yy, xs, ys
+
     return img
 
 
@@ -420,19 +425,29 @@ def process_cinematic_overlay(
     if preset["blur_radius"] > 0:
         # Blur only the RGB channels, preserve alpha
         rgb = img.convert("RGB")
-        rgb = rgb.filter(ImageFilter.GaussianBlur(radius=preset["blur_radius"]))
-        rgb = rgb.convert("RGBA")
+        blurred = rgb.filter(ImageFilter.GaussianBlur(radius=preset["blur_radius"]))
+        rgb.close()
+        blurred_rgba = blurred.convert("RGBA")
+        blurred.close()
         # Restore original alpha
-        r, g, b, _ = rgb.split()
+        r, g, b, _ = blurred_rgba.split()
         _, _, _, a = img.split()
+        old_img = img
         img = Image.merge("RGBA", (r, g, b, a))
+        old_img.close()
+        blurred_rgba.close()
 
-    # Apply color temperature
+    # Apply color temperature (each step frees the previous image internally)
+    old_img = img
     img = _apply_color_temperature(img, preset["color_temp"])
+    if img is not old_img:
+        old_img.close()
 
     # Apply bloom/glow to bright areas
     if preset.get("bloom"):
+        old_img = img
         img = _apply_bloom(img, intensity=0.12)
+        old_img.close()
 
     # Fade edges: keep overlay strongest at edges/corners, lighter in center
     img = _make_edge_fade(img, fade_pct=0.20)
@@ -485,7 +500,10 @@ def generate_ai_overlay(
     """
     raw_bytes = generate_image(prompt=prompt, width=width, height=height)
     raw_img = Image.open(io.BytesIO(raw_bytes))
-    return process_cinematic_overlay(raw_img, (width, height), style=style, role=role)
+    del raw_bytes
+    result = process_cinematic_overlay(raw_img, (width, height), style=style, role=role)
+    raw_img.close()
+    return result
 
 
 # ── Slide Roles ──────────────────────────────────────────────────────────────
@@ -562,50 +580,56 @@ def _gradient_overlay(
 ) -> Image.Image:
     """Apply a role-aware gradient overlay for text readability.
 
+    Uses numpy for efficient gradient computation instead of per-row drawing.
+
     Hook:    heavier at top (where the massive title sits)
     Context: balanced mid-range darkening
     Payoff:  accent-tinted gradient from bottom (visual shift)
     CTA:     heavy uniform overlay for clean text-forward look
     """
+    import numpy as np
+
     w, h = img.size
-    gradient = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(gradient)
+    t = np.linspace(0, 1, h, dtype=np.float32)
 
     ar = accent_color[0] * 0.12
     ag = accent_color[1] * 0.12
     ab = accent_color[2] * 0.12
 
-    for y in range(h):
-        t = y / h
-        if role == "hook":
-            # Heavy at top where the big title sits, lighter below for bg peek
-            if t < 0.55:
-                alpha = int(210 - t * 100)
-            else:
-                alpha = int(140 + (t - 0.55) * 180)
-        elif role == "payoff":
-            # Accent-heavy from bottom — visual shift
-            alpha = int(100 + t * 120)
-            ar = accent_color[0] * 0.20
-            ag = accent_color[1] * 0.20
-            ab = accent_color[2] * 0.20
-        elif role == "cta":
-            # Heavy uniform overlay for clean text-only look
-            alpha = 190
-        else:  # context
-            # Balanced readability
-            if t < 0.25:
-                alpha = int(190 - t * 120)
-            elif t > 0.75:
-                alpha = int(130 + (t - 0.75) * 200)
-            else:
-                alpha = 130
+    if role == "hook":
+        alpha = np.where(t < 0.55, 210 - t * 100, 140 + (t - 0.55) * 180)
+    elif role == "payoff":
+        alpha = 100 + t * 120
+        ar = accent_color[0] * 0.20
+        ag = accent_color[1] * 0.20
+        ab = accent_color[2] * 0.20
+    elif role == "cta":
+        alpha = np.full_like(t, 190)
+    else:  # context
+        alpha = np.where(
+            t < 0.25, 190 - t * 120,
+            np.where(t > 0.75, 130 + (t - 0.75) * 200, 130),
+        )
 
-        draw.line([(0, y), (w, y)], fill=(int(ar), int(ag), int(ab), alpha))
+    alpha = np.clip(alpha, 0, 255).astype(np.uint8)
+
+    # Build RGBA gradient array: each row is (ar, ag, ab, alpha[y])
+    grad = np.zeros((h, w, 4), dtype=np.uint8)
+    grad[:, :, 0] = int(ar)
+    grad[:, :, 1] = int(ag)
+    grad[:, :, 2] = int(ab)
+    grad[:, :, 3] = alpha[:, np.newaxis]
+
+    gradient = Image.fromarray(grad, mode="RGBA")
 
     if img.mode != "RGBA":
         img = img.convert("RGBA")
-    return Image.alpha_composite(img, gradient)
+    result = Image.alpha_composite(img, gradient)
+
+    gradient.close()
+    del grad, alpha, t
+
+    return result
 
 
 # ── Layer 3: Foreground Subject Compositing ──────────────────────────────────
@@ -1592,6 +1616,8 @@ def generate_slide_images(
         "cta": "golden_hour",
     }
 
+    import gc
+
     for i, (slide, prompt) in enumerate(zip(slides, image_prompts)):
         # Small delay between requests to avoid rate limits
         if i > 0:
@@ -1605,6 +1631,7 @@ def generate_slide_images(
         )
         bg_image = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
         bg_image = bg_image.resize((img_w, img_h), Image.Resampling.LANCZOS)
+        del img_bytes
 
         # Generate cinematic overlay if prompts provided
         cinematic_overlay = None
@@ -1634,10 +1661,18 @@ def generate_slide_images(
             cinematic_overlay=cinematic_overlay,
         )
 
-        # Save
+        # Save and free memory immediately
         out_path = os.path.join(output_dir, f"ai_slide_{i + 1:02d}.png")
         final.save(out_path, "PNG")
         paths.append(out_path)
+
+        # Explicit cleanup — free large PIL images between slides
+        final.close()
+        bg_image.close()
+        if cinematic_overlay is not None:
+            cinematic_overlay.close()
+        del final, bg_image, cinematic_overlay
+        gc.collect()
 
     return paths
 
@@ -1662,6 +1697,8 @@ def generate_all_ai_images(
     Returns:
         List of (prompt, [Image]) tuples, one per slide.
     """
+    import gc
+
     results: list[tuple[str, list[Image.Image]]] = []
     width, height = target_size
 
@@ -1683,10 +1720,12 @@ def generate_all_ai_images(
                 img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
                 img = img.resize(target_size, Image.Resampling.LANCZOS)
                 images.append(img)
+                del img_bytes
             except Exception as exc:
                 print(f"  Warning: AI image {j + 1}/{per_prompt} failed for slide {i + 1}: {exc}")
 
         print(f"[ai_images] Slide {i + 1}: generated {len(images)} images for prompt")
         results.append((prompt, images))
+        gc.collect()
 
     return results
