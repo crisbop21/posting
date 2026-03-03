@@ -1264,17 +1264,13 @@ def generate_overlay_prompts(
     topic: str = "",
     angle: str = "",
     overlay_style: str = "auto",
-) -> list[str]:
+) -> list[list[str]]:
     """Generate cinematic overlay image prompts for each slide.
 
     Creates prompts for AI-generated foreground overlay images that add
     cinematic depth, atmosphere, and visual storytelling to slides.
-    Based on professional TikTok/content creation techniques:
-      - Bokeh and depth of field for focus and mood
-      - Light leaks and lens flares for organic film texture
-      - Volumetric lighting for atmosphere
-      - Film grain for authentic analog warmth
-      - Neon glow for high-energy tech content
+    Multiple prompts per slide are linked to sentences so overlays
+    transition as the narration progresses.
 
     Args:
         slides: List of slide dicts.
@@ -1283,7 +1279,8 @@ def generate_overlay_prompts(
         overlay_style: One of the OVERLAY_STYLE_DESCRIPTIONS keys or 'auto'.
 
     Returns:
-        List of image generation prompts for overlay images, one per slide.
+        List of lists — each inner list contains one overlay prompt per
+        sentence in the slide body, so overlays transition with narration.
     """
     slide_text = json.dumps(slides, indent=2)
 
@@ -1320,18 +1317,23 @@ Angle: {angle or 'general'}
 Here are the slides:
 {slide_text}
 
-Generate ONE overlay image prompt per slide. Each prompt must describe a TRANSPARENT overlay effect that:
+Generate MULTIPLE overlay image prompts per slide — one for each sentence in the slide body.
+This creates visual rhythm: as the narration reads each sentence, the overlay transitions to
+match the sentence's content and mood. Each slide should have 2-4 overlay prompts.
+
+Each prompt must describe a TRANSPARENT overlay effect that:
 
 1. Creates cinematic depth — the viewer should feel like they're watching through a cinema camera lens
-2. Uses real photography/cinematography terminology: bokeh, f-stop, anamorphic, Rembrandt lighting, lens flare, film grain
-3. Specifies the exact look: light direction, color temperature (warm amber 3200K or cool blue 5600K), opacity feel
-4. Matches the slide's emotional tone (bullish = warm gold/green tones, bearish = cool blue/red tones, urgent = high contrast)
-5. Is SUBTLE and enhances readability — never overwhelms the slide text
-6. Has elements positioned toward edges and corners, keeping the center relatively clear for text
-7. Creates the illusion of depth of field — as if foreground elements are slightly out of focus
-8. Changes visual rhythm every 2-3 slides to maintain viewer engagement
-9. Never includes text, logos, watermarks, or recognizable faces
-10. Is 25-50 words — specific enough for photorealistic results
+2. Is visually linked to the specific sentence it accompanies (e.g. a sentence about "growth" → upward light streaks)
+3. Uses real photography/cinematography terminology: bokeh, f-stop, anamorphic, Rembrandt lighting, lens flare, film grain
+4. Specifies the exact look: light direction, color temperature (warm amber 3200K or cool blue 5600K), opacity feel
+5. Matches the sentence's emotional tone (bullish = warm gold/green tones, bearish = cool blue/red tones, urgent = high contrast)
+6. Is SUBTLE and enhances readability — never overwhelms the slide text
+7. Has elements positioned toward edges and corners, keeping the center relatively clear for text
+8. Creates the illusion of depth of field — as if foreground elements are slightly out of focus
+9. Transitions smoothly from the previous overlay (avoid jarring style jumps within one slide)
+10. Never includes text, logos, watermarks, or recognizable faces
+11. Is 25-50 words — specific enough for photorealistic results
 
 Camera/lens keywords to use: "shot on 85mm f/1.2", "anamorphic lens flare", "35mm film",
 "shallow depth of field", "Zeiss Master Prime", "cinematic color grade"
@@ -1339,31 +1341,46 @@ Camera/lens keywords to use: "shot on 85mm f/1.2", "anamorphic lens flare", "35m
 Effect keywords: "transparent overlay", "light overlay", "atmospheric haze",
 "bokeh foreground elements", "dust particles in light", "soft lens bloom"
 
-Return your response as a JSON array of strings, one prompt per slide:
-["overlay prompt for slide 1", "overlay prompt for slide 2", ...]
+Return your response as a JSON array of arrays. Each inner array has one prompt per sentence:
+[
+  ["slide 1 sentence 1 overlay", "slide 1 sentence 2 overlay", "slide 1 sentence 3 overlay"],
+  ["slide 2 sentence 1 overlay", "slide 2 sentence 2 overlay"],
+  ...
+]
 
 Return ONLY the JSON array, no other text."""
 
     response = create_message(
         model="claude-sonnet-4-20250514",
-        max_tokens=2048,
+        max_tokens=4096,
         messages=[{"role": "user", "content": prompt}],
     )
 
     text = _extract_text(response)
     result = _parse_json(text)
 
-    if isinstance(result, list):
-        while len(result) < len(slides):
-            result.append(result[-1] if result else "cinematic bokeh overlay, warm light leak, 85mm f/1.2, transparent")
-        return result[: len(slides)]
+    fallback_prompt = "cinematic bokeh overlay, warm light leak, 85mm f/1.2, transparent"
+
+    if isinstance(result, list) and len(result) > 0:
+        # Handle both old format (list[str]) and new format (list[list[str]])
+        normalized: list[list[str]] = []
+        for item in result:
+            if isinstance(item, list):
+                normalized.append(item if item else [fallback_prompt])
+            elif isinstance(item, str):
+                # Old flat format — wrap in a list
+                normalized.append([item])
+            else:
+                normalized.append([fallback_prompt])
+
+        while len(normalized) < len(slides):
+            normalized.append(normalized[-1] if normalized else [fallback_prompt])
+        return normalized[: len(slides)]
 
     # Fallback: generate style-appropriate overlay prompts
     fallback_style = OVERLAY_STYLE_DESCRIPTIONS.get(overlay_style, OVERLAY_STYLE_DESCRIPTIONS["cinematic_bokeh"])
-    return [
-        f"Transparent cinematic overlay, {fallback_style[:80]}, 8k, photorealistic"
-        for _ in slides
-    ]
+    fb = f"Transparent cinematic overlay, {fallback_style[:80]}, 8k, photorealistic"
+    return [[fb] for _ in slides]
 
 
 def generate_video_script(

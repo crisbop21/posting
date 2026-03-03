@@ -705,6 +705,7 @@ def _draw_branded_frame(
     slide_index: int,
     total_slides: int,
     handle: str,
+    show_counter: bool = True,
 ):
     """Draw consistent branded frame: accent bars, counter pill, handle.
 
@@ -712,6 +713,9 @@ def _draw_branded_frame(
       - Counter pill: top-left, within the 8-25% title zone
       - Handle: at ~70% from top (inside the caption zone, above platform UI)
       - Accent bars: top edge and at the 73% boundary
+
+    Args:
+        show_counter: If False, skip the slide counter pill (e.g. for video).
     """
     # Top accent bar (at top of safe zone, ~8% from top)
     bar_y = int(h * 0.078)
@@ -723,31 +727,32 @@ def _draw_branded_frame(
     draw.rectangle([0, lower_bar_y, w, lower_bar_y + bar_h], fill=(*accent_c, 80))
 
     # Slide counter pill (top-left, within title zone)
-    counter_font = _load_font("sans_bold", int(w * 0.032))
-    counter_text = f"{slide_index + 1}/{total_slides}"
-    counter_bbox = counter_font.getbbox(counter_text)
-    counter_tw = counter_bbox[2] - counter_bbox[0]
-    counter_th = counter_bbox[3] - counter_bbox[1]
+    if show_counter:
+        counter_font = _load_font("sans_bold", int(w * 0.032))
+        counter_text = f"{slide_index + 1}/{total_slides}"
+        counter_bbox = counter_font.getbbox(counter_text)
+        counter_tw = counter_bbox[2] - counter_bbox[0]
+        counter_th = counter_bbox[3] - counter_bbox[1]
 
-    pill_pad_x = int(w * 0.025)
-    pill_pad_y = int(h * 0.008)
-    pill_x = w - int(w * 0.15) - counter_tw - pill_pad_x  # away from right buttons
-    pill_y = int(h * 0.085)
-    pill_w = counter_tw + pill_pad_x * 2
-    pill_h = counter_th + pill_pad_y * 2
+        pill_pad_x = int(w * 0.025)
+        pill_pad_y = int(h * 0.008)
+        pill_x = w - int(w * 0.15) - counter_tw - pill_pad_x  # away from right buttons
+        pill_y = int(h * 0.085)
+        pill_w = counter_tw + pill_pad_x * 2
+        pill_h = counter_th + pill_pad_y * 2
 
-    # Pill background
-    draw.rounded_rectangle(
-        [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
-        radius=pill_h // 2,
-        fill=(*accent_c, 180),
-    )
-    draw.text(
-        (pill_x + pill_pad_x, pill_y + pill_pad_y - 2),
-        counter_text,
-        font=counter_font,
-        fill=(255, 255, 255),
-    )
+        # Pill background
+        draw.rounded_rectangle(
+            [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
+            radius=pill_h // 2,
+            fill=(*accent_c, 180),
+        )
+        draw.text(
+            (pill_x + pill_pad_x, pill_y + pill_pad_y - 2),
+            counter_text,
+            font=counter_font,
+            fill=(255, 255, 255),
+        )
 
     # Handle in the caption zone (~70% from top, above platform UI)
     handle_font = _load_font("sans", int(w * 0.028))
@@ -1404,6 +1409,7 @@ def composite_slide(
     foreground: Optional[Image.Image] = None,
     title_only: bool = False,
     cinematic_overlay: Optional[Image.Image] = None,
+    show_counter: bool = True,
 ) -> Image.Image:
     """Composite a slide with the full 6-layer visual treatment.
 
@@ -1459,7 +1465,7 @@ def composite_slide(
     draw = ImageDraw.Draw(img)
 
     # Layer 5: Branded frame
-    _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
+    _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle, show_counter=show_counter)
 
     # Layer 6: Text layout (title-only when captions carry the script body)
     if title_only:
@@ -1507,6 +1513,7 @@ def composite_slide_layers(
     caption_safe_pct: float = 0.0,
     title_only: bool = False,
     cinematic_overlay: Optional[Image.Image] = None,
+    show_counter: bool = True,
 ) -> tuple[Image.Image, Image.Image]:
     """Render slide as separate background + overlay for animated compositing.
 
@@ -1558,7 +1565,7 @@ def composite_slide_layers(
 
     # Layer 5: Branded frame
     draw = ImageDraw.Draw(overlay)
-    _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle)
+    _draw_branded_frame(draw, w, h, accent_c, role, slide_index, total_slides, handle, show_counter=show_counter)
 
     # Layer 6: Text layout (title-only when captions carry the script body)
     if title_only:
@@ -1586,8 +1593,9 @@ def generate_slide_images(
     aspect_ratio: str = "9:16",
     output_dir: str = "./output",
     handle: str = "@cristian.bojaca",
-    overlay_prompts: list[str] | None = None,
+    overlay_prompts: list[list[str]] | list[str] | None = None,
     overlay_style: str = "auto",
+    show_counter: bool = True,
 ) -> list[str]:
     """Generate AI background images and composite with slide text.
 
@@ -1598,9 +1606,9 @@ def generate_slide_images(
         aspect_ratio: '9:16' or '16:9'.
         output_dir: Where to save the composited PNGs.
         handle: Social media handle.
-        overlay_prompts: Optional list of cinematic overlay prompts (one per
-            slide). When provided, generates AI overlay images for each slide
-            with cinematic post-processing (bokeh, light leaks, film grain).
+        overlay_prompts: Optional overlay prompts per slide. Each entry can
+            be a list of prompts (one per sentence) or a single string.
+            For static PNG compositing, only the first prompt is used.
         overlay_style: Cinematic style preset for overlays. One of:
             cinematic_bokeh, light_leak, film_noir, volumetric_light,
             neon_glow, golden_hour, film_grain, or 'auto' to pick per slide.
@@ -1642,14 +1650,17 @@ def generate_slide_images(
         del img_bytes
 
         # Generate cinematic overlay if prompts provided
+        # For static PNGs, use the first prompt from each slide's list
         cinematic_overlay = None
         if overlay_prompts and i < len(overlay_prompts):
+            slide_op = overlay_prompts[i]
+            first_prompt = slide_op[0] if isinstance(slide_op, list) else slide_op
             role = get_slide_role(i, len(slides))
             effective_style = auto_styles.get(role, "cinematic_bokeh") if overlay_style == "auto" else overlay_style
             try:
                 time.sleep(2)  # Rate limit spacing
                 cinematic_overlay = generate_ai_overlay(
-                    prompt=overlay_prompts[i],
+                    prompt=first_prompt,
                     width=img_w,
                     height=img_h,
                     style=effective_style,
@@ -1667,6 +1678,7 @@ def generate_slide_images(
             colors=colors,
             handle=handle,
             cinematic_overlay=cinematic_overlay,
+            show_counter=show_counter,
         )
 
         # Save and free memory immediately

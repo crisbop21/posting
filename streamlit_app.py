@@ -1827,8 +1827,13 @@ elif st.session_state.step == 6:
 
                 if st.session_state.ai_overlay_prompts:
                     with st.expander("Cinematic Overlay Prompts"):
-                        for i, prompt in enumerate(st.session_state.ai_overlay_prompts):
-                            st.markdown(f"**Slide {i + 1}:** {prompt}")
+                        for i, slide_prompts in enumerate(st.session_state.ai_overlay_prompts):
+                            if isinstance(slide_prompts, list):
+                                st.markdown(f"**Slide {i + 1}** ({len(slide_prompts)} overlays):")
+                                for j, p in enumerate(slide_prompts):
+                                    st.markdown(f"  - Sentence {j + 1}: {p}")
+                            else:
+                                st.markdown(f"**Slide {i + 1}:** {slide_prompts}")
 
                 ai_zip_bytes = _cached_zip(st.session_state.ai_image_paths)
                 st.download_button(
