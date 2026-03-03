@@ -1158,7 +1158,7 @@ def generate_image_prompts(
     finance-themed scene that matches the slide content.
     """
     slide_text = json.dumps(slides, indent=2)
-    prompt = f"""You are an expert visual director creating image prompts for AI image generation (Flux/Stable Diffusion).
+    prompt = f"""You are an expert visual director creating image prompts for AI image generation.
 
 Topic: {topic or 'finance'}
 Angle: {angle or 'general'}
@@ -1166,11 +1166,11 @@ Angle: {angle or 'general'}
 Here are the slides:
 {slide_text}
 
-Generate ONE image prompt per slide. Each prompt should describe a cinematic, visually striking scene that:
+Generate ONE image prompt per slide. Each prompt should describe a cinematic realistic scene that:
 
 1. Matches the slide's content and mood (bullish = green/gold/upward, bearish = red/dark/downward)
 2. Uses finance-themed imagery: trading floors, stock tickers, cityscapes, charts, currency, corporate boardrooms, Federal Reserve building, Wall Street, tech offices
-3. Is photorealistic and cinematic — think movie poster or documentary still
+3. Is cinematic realistic — hyper-realistic photography with cinematic color grading, like a still from a Hollywood film or high-end documentary
 4. Includes lighting direction (e.g., "dramatic golden hour lighting", "neon-lit", "cold blue fluorescent")
 5. NEVER includes text, numbers, letters, logos, watermarks, UI elements, or any written content — this is CRITICAL
 6. Is 20-40 words — specific enough for good results, not overly detailed
@@ -1184,10 +1184,12 @@ IMPORTANT — These images will be used as backgrounds in a video with text over
 - Show real-world scenes (people, places, objects) — NOT charts, graphs, or infographics
 - Have NO text, labels, numbers, tickers, or any rendered characters in the image itself
 
-Style keywords to use: "cinematic", "photorealistic", "shallow depth of field", "dramatic lighting", "8k", "editorial photography"
+Style keywords to use: "cinematic realistic", "hyper-realistic", "shallow depth of field", "dramatic lighting", "8k", "cinematic color grading", "film still"
+
+IMPORTANT: Every prompt MUST start with "Cinematic realistic, " as a style prefix.
 
 Return your response as a JSON array of strings, one prompt per slide:
-["prompt for slide 1", "prompt for slide 2", ...]
+["Cinematic realistic, prompt for slide 1", "Cinematic realistic, prompt for slide 2", ...]
 
 Return ONLY the JSON array, no other text."""
 
@@ -1202,12 +1204,12 @@ Return ONLY the JSON array, no other text."""
 
     if isinstance(result, list):
         while len(result) < len(slides):
-            result.append(result[-1] if result else "cinematic finance scene, dramatic lighting, 8k")
+            result.append(result[-1] if result else "Cinematic realistic, finance scene, dramatic lighting, 8k")
         return result[: len(slides)]
 
     # Fallback: generate generic finance prompts
     return [
-        f"Cinematic {topic or 'finance'} scene, dramatic lighting, photorealistic, 8k, editorial photography"
+        f"Cinematic realistic, {topic or 'finance'} scene, dramatic lighting, hyper-realistic, 8k, cinematic color grading"
         for _ in slides
     ]
 

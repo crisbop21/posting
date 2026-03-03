@@ -1712,7 +1712,7 @@ def generate_all_ai_images(
                 if j == 0:
                     gen_prompt = prompt
                 else:
-                    gen_prompt = f"{prompt}, alternative angle, different composition"
+                    gen_prompt = f"{prompt}, alternative angle, different composition, cinematic realistic"
 
                 img_bytes = generate_image(
                     prompt=gen_prompt, width=width, height=height,
