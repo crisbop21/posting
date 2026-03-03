@@ -701,12 +701,15 @@ def build_video(
     with tempfile.TemporaryDirectory() as tmp_dir:
         slide_clips = []
 
+        import gc
+
         for i, (png_path, script) in enumerate(zip(png_paths, scripts)):
             # Generate audio
             audio_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
             audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
+            del audio_bytes
 
             # Load audio to determine duration
             audio_clip = AudioFileClip(audio_path)
@@ -745,6 +748,8 @@ def build_video(
         for clip in slide_clips:
             clip.close()
         final.close()
+        del slide_clips, final
+        gc.collect()
 
     return output_path
 
@@ -796,6 +801,8 @@ def build_video_with_ai_images(
     )
 
     # Step 2: Synthesize audio per slide and assemble
+    import gc
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         slide_clips = []
 
@@ -804,6 +811,7 @@ def build_video_with_ai_images(
             audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
+            del audio_bytes
 
             audio_clip = AudioFileClip(audio_path)
             duration = max(audio_clip.duration + padding, min_duration)
@@ -831,6 +839,8 @@ def build_video_with_ai_images(
         for clip in slide_clips:
             clip.close()
         final.close()
+        del slide_clips, final
+        gc.collect()
 
     return output_path
 
@@ -879,6 +889,8 @@ def build_video_with_searched_images(
     Returns:
         Dict with 'video_path' and 'search_results' (query -> found/not found).
     """
+    import gc
+
     mp = _ensure_moviepy()
     from moviepy import (
         AudioFileClip,
@@ -1009,6 +1021,7 @@ def build_video_with_searched_images(
             preview.save(
                 os.path.join(output_dir, f"web_slide_{i + 1:02d}.png"), "PNG",
             )
+            preview.close()
             search_report[query] = f"found ({len(images)} images)"
 
         elif images and not ken_burns:
@@ -1022,11 +1035,28 @@ def build_video_with_searched_images(
             )
             out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
             final.save(out_path, "PNG")
+            final.close()
             slide_visuals.append(("static", out_path))
             search_report[query] = "found (1 image, static)"
         else:
             slide_visuals.append(("static", fallback_pngs[i]))
             search_report[query] = "not_found"
+
+        # Free source images after preparing this slide's visuals.
+        # The treated_bgs/overlay/fg_prepared are still needed for video,
+        # but the raw downloaded images can go now.
+        for img in images:
+            img.close()
+        if c_overlay is not None:
+            c_overlay.close()
+        gc.collect()
+
+    # Free cutout images — no longer needed after visual preparation
+    for ci in cutout_images:
+        if ci is not None:
+            ci.close()
+    del cutout_images, image_results
+    gc.collect()
 
     # Step 3: Synthesize audio (with timestamps), generate SFX, assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1048,6 +1078,7 @@ def build_video_with_searched_images(
             )
             with open(vo_path, "wb") as f:
                 f.write(audio_bytes)
+            del audio_bytes
 
             vo_clip = AudioFileClip(vo_path)
             duration = max(vo_clip.duration + padding, min_duration)
@@ -1083,6 +1114,13 @@ def build_video_with_searched_images(
                     caption_safe_pct=caption_safe_pct,
                 )
 
+                # Free PIL images now — numpy arrays are held in the clip closure
+                for bg in treated_bgs:
+                    bg.close()
+                overlay.close()
+                for fg in fg_prepared:
+                    fg.close()
+
                 # Build audio: voiceover + SFX synced to visual events
                 audio_parts = [vo_clip]
 
@@ -1116,6 +1154,12 @@ def build_video_with_searched_images(
                 )
 
             slide_clips.append(clip)
+            # Free visual data for this slide (clip holds its own refs)
+            slide_visuals[i] = None
+            gc.collect()
+
+        # All visuals freed, clear the list
+        del slide_visuals
 
         if crossfade > 0 and len(slide_clips) > 1:
             final_video = concatenate_videoclips(
@@ -1133,6 +1177,8 @@ def build_video_with_searched_images(
         for clip in slide_clips:
             clip.close()
         final_video.close()
+        del slide_clips, final_video
+        gc.collect()
 
     return {"video_path": output_path, "search_results": search_report}
 
@@ -1206,6 +1252,7 @@ def build_video_from_slides(
                 "payoff": "light_leak",
                 "cta": "golden_hour",
             }
+            import gc
             cinematic_overlays = []
             for i, op in enumerate(overlay_prompts):
                 role = get_slide_role(i, len(slides))
@@ -1218,6 +1265,7 @@ def build_video_from_slides(
                     cinematic_overlays.append(co)
                 except Exception:
                     cinematic_overlays.append(None)
+                gc.collect()
 
     if use_web_images:
         from src.content.generator import generate_image_search_queries

@@ -9,6 +9,7 @@ Flow:
   6. Studio: Edit + Export (tabbed — Edit | Slides | AI Images | Video)
 """
 
+import gc
 import html as html_mod
 import io
 import os
@@ -1727,6 +1728,7 @@ elif st.session_state.step == 6:
                         )
                         st.session_state.ai_image_paths = ai_paths
                         st.session_state.ai_image_prompts = image_prompts
+                        gc.collect()
                         st.rerun()
                     except Exception as exc:
                         st.error(f"AI image generation failed: {exc}")
@@ -1880,6 +1882,7 @@ elif st.session_state.step == 6:
 
                         except Exception as exc:
                             st.error(f"Video build failed: {exc}")
+                    gc.collect()
                     st.rerun()
 
             # ── Show result ────────────────────────────────────────────
