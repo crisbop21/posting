@@ -280,6 +280,44 @@ def _extract_visual_cues(
     return card_times, bg_times
 
 
+def _extract_sentence_times(
+    script: str,
+    char_ends: list[float],
+    duration: float,
+    n_overlays: int,
+    min_gap: float = 1.0,
+) -> list[float]:
+    """Derive overlay transition times from sentence boundaries in the script.
+
+    Returns N-1 times (transitions between N overlays).
+    """
+    if n_overlays <= 1:
+        return []
+
+    n_transitions = n_overlays - 1
+
+    # Collect sentence boundary times from the voiceover
+    sentence_times = []
+    if char_ends:
+        for m in re.finditer(r'[.!?;—]\s', script):
+            pos = m.start()
+            if pos < len(char_ends):
+                t = char_ends[pos]
+                if 0.3 < t < duration - 0.5:
+                    if not sentence_times or t - sentence_times[-1] >= min_gap:
+                        sentence_times.append(t)
+
+    # If we got enough sentence cues, use them (evenly spaced subset)
+    if len(sentence_times) >= n_transitions:
+        # Pick evenly-spaced subset
+        step = len(sentence_times) / n_transitions
+        return [sentence_times[int(i * step)] for i in range(n_transitions)]
+
+    # Fallback: evenly space through the duration
+    interval = duration / n_overlays
+    return [interval * (j + 1) for j in range(n_transitions) if interval * (j + 1) < duration - 0.3]
+
+
 # ── Ken Burns Motion ─────────────────────────────────────────────────────────
 
 # Role → motion type mapping.
@@ -479,6 +517,9 @@ def _make_dynamic_slide_clip(
     fg_crossfade=0.3,
     bg_crossfade=0.4,
     caption_safe_pct=0.27,
+    cinematic_overlays=None,
+    overlay_change_times=None,
+    overlay_crossfade=0.5,
 ):
     """Create an animated slide clip with rotating backgrounds and foreground images.
 
@@ -499,6 +540,11 @@ def _make_dynamic_slide_clip(
         bg_change_times: Explicit transition times between backgrounds.
         fg_crossfade: Duration of crossfade between foreground images.
         bg_crossfade: Duration of crossfade between backgrounds.
+        cinematic_overlays: Optional list of RGBA PIL Images (cinematic
+            overlay effects). Multiple overlays transition at sentence
+            boundaries for visual rhythm synced to narration.
+        overlay_change_times: Transition times between cinematic overlays.
+        overlay_crossfade: Duration of crossfade between overlays.
     """
     import numpy as np
     from moviepy import VideoClip
@@ -534,6 +580,20 @@ def _make_dynamic_slide_clip(
     text_alpha = ov[:, :, 3:4].astype(np.float32) / 255.0
     text_rgb = ov[:, :, :3].astype(np.float32)
 
+    # Cinematic overlays — pre-compute RGBA arrays
+    co_arrays = []
+    if cinematic_overlays:
+        for co_img in cinematic_overlays:
+            co = co_img
+            if co.size != (target_w, target_h):
+                co = co.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            if co.mode != "RGBA":
+                co = co.convert("RGBA")
+            co_arrays.append(np.array(co).astype(np.float32))
+
+    if overlay_change_times is None:
+        overlay_change_times = []
+
     # Foreground images — pre-compute arrays and position
     fg_arrays = []
     for fg_img in fg_images:
@@ -545,6 +605,7 @@ def _make_dynamic_slide_clip(
     fg_y = int(FG_IMAGE_POS[1] * target_h)
 
     n_bgs = len(bg_arrays)
+    n_cos = len(co_arrays)
 
     # Assign a Ken Burns motion per background segment
     motions = [base_motion]
@@ -597,9 +658,38 @@ def _make_dynamic_slide_clip(
                     )
                     bg_frame = bg_frame * (1.0 - cf) + bg_next * cf
 
-        # ── 2. FOREGROUND IMAGE LAYER (always visible, crossfade rotation) ──
         frame = bg_frame.copy()
 
+        # ── 2. CINEMATIC OVERLAY LAYER (sentence-synced transitions) ──
+        if n_cos > 0:
+            # Determine which overlay is active based on sentence timing
+            co_seg = sum(1 for ot in overlay_change_times if t >= ot)
+            co_seg = min(co_seg, n_cos - 1)
+
+            cur_co = co_arrays[co_seg]
+            co_a = cur_co[:, :, 3:4] / 255.0
+            co_rgb = cur_co[:, :, :3]
+
+            # Check for crossfade to next overlay
+            co_blend = 0.0
+            next_co_seg = co_seg + 1
+            if co_seg < len(overlay_change_times) and next_co_seg < n_cos:
+                time_to_change = overlay_change_times[co_seg] - t
+                if 0 < time_to_change < overlay_crossfade:
+                    co_blend = 1.0 - time_to_change / overlay_crossfade
+
+            if co_blend > 0.01 and next_co_seg < n_cos:
+                next_co = co_arrays[next_co_seg]
+                next_a = next_co[:, :, 3:4] / 255.0
+                next_rgb = next_co[:, :, :3]
+                # Blend the two overlays
+                blended_a = co_a * (1.0 - co_blend) + next_a * co_blend
+                blended_rgb = co_rgb * (1.0 - co_blend) + next_rgb * co_blend
+                frame = frame * (1.0 - blended_a) + blended_rgb * blended_a
+            else:
+                frame = frame * (1.0 - co_a) + co_rgb * co_a
+
+        # ── 3. FOREGROUND IMAGE LAYER (always visible, crossfade rotation) ──
         if fg_arrays:
             n_fg = len(fg_arrays)
             # Determine current and next image from fg_change_times
@@ -639,7 +729,7 @@ def _make_dynamic_slide_clip(
             region = frame[y1:y2, x1:x2]
             frame[y1:y2, x1:x2] = region * (1.0 - fg_a) + fg_rgb * fg_a
 
-        # ── 3. TEXT OVERLAY (always on top) ──
+        # ── 4. TEXT OVERLAY (always on top) ──
         result = frame * (1.0 - text_alpha) + text_rgb * text_alpha
         return result.astype(np.uint8)
 
@@ -777,7 +867,7 @@ def build_video_with_ai_images(
     crossfade: float = 0.3,
     min_duration: float = 4.0,
     padding: float = 0.8,
-    overlay_prompts: list[str] | None = None,
+    overlay_prompts: list[list[str]] | list[str] | None = None,
     overlay_style: str = "auto",
 ) -> str:
     """Build a narrated MP4 using AI-generated background images.
@@ -809,6 +899,7 @@ def build_video_with_ai_images(
         handle=handle,
         overlay_prompts=overlay_prompts,
         overlay_style=overlay_style,
+        show_counter=False,
     )
 
     # Step 2: Synthesize audio per slide and assemble
@@ -989,7 +1080,12 @@ def build_video_with_searched_images(
 
     for i, (slide, (query, images)) in enumerate(zip(slides, image_results)):
         foreground = cutout_images[i] if i < len(cutout_images) else None
-        c_overlay = cinematic_overlays[i] if cinematic_overlays and i < len(cinematic_overlays) else None
+        # cinematic_overlays is now list[list[Image]] — multiple per slide
+        slide_overlays = cinematic_overlays[i] if cinematic_overlays and i < len(cinematic_overlays) else []
+        # Filter out None entries
+        slide_overlays = [co for co in slide_overlays if co is not None]
+        # First overlay used for static compositing (text layer + preview)
+        c_overlay_first = slide_overlays[0] if slide_overlays else None
         role = get_slide_role(i, len(slides))
 
         if images and ken_burns:
@@ -1010,7 +1106,8 @@ def build_video_with_searched_images(
                 for img in bg_imgs
             ]
 
-            # Render overlay (frame + title only — captions carry the script body)
+            # Render text overlay (frame + title only — captions carry the script body)
+            # Use first cinematic overlay for the static text layer
             _, overlay = composite_slide_layers(
                 bg_image=bg_imgs[0],
                 slide=slide,
@@ -1021,7 +1118,8 @@ def build_video_with_searched_images(
                 foreground=foreground,
                 caption_safe_pct=caption_safe_pct,
                 title_only=True,
-                cinematic_overlay=c_overlay,
+                cinematic_overlay=None,  # overlays handled separately in make_frame
+                show_counter=False,
             )
 
             # Prepare foreground images
@@ -1030,7 +1128,7 @@ def build_video_with_searched_images(
                 for img in fg_imgs
             ]
 
-            slide_visuals.append(("dynamic", treated_bgs, overlay, fg_prepared, role))
+            slide_visuals.append(("dynamic", treated_bgs, overlay, fg_prepared, role, slide_overlays))
 
             # Save static preview for reference (title-only to match video)
             preview = composite_slide(
@@ -1038,7 +1136,8 @@ def build_video_with_searched_images(
                 total_slides=len(slides), colors=colors,
                 handle=handle, foreground=foreground,
                 title_only=True,
-                cinematic_overlay=c_overlay,
+                cinematic_overlay=c_overlay_first,
+                show_counter=False,
             )
             preview.save(
                 os.path.join(output_dir, f"web_slide_{i + 1:02d}.png"), "PNG",
@@ -1053,7 +1152,8 @@ def build_video_with_searched_images(
                 total_slides=len(slides), colors=colors,
                 handle=handle, foreground=foreground,
                 title_only=True,
-                cinematic_overlay=c_overlay,
+                cinematic_overlay=c_overlay_first,
+                show_counter=False,
             )
             out_path = os.path.join(output_dir, f"web_slide_{i + 1:02d}.png")
             final.save(out_path, "PNG")
@@ -1069,8 +1169,7 @@ def build_video_with_searched_images(
         # but the raw downloaded images can go now.
         for img in images:
             img.close()
-        if c_overlay is not None:
-            c_overlay.close()
+        # Don't close slide_overlays here — they're needed by _make_dynamic_slide_clip
         gc.collect()
 
     # Free cutout images — no longer needed after visual preparation
@@ -1110,7 +1209,8 @@ def build_video_with_searched_images(
             duration = max(vo_clip.duration + pre_roll + padding, min_duration)
 
             if visual[0] == "dynamic":
-                _, treated_bgs, overlay, fg_prepared, role = visual
+                _, treated_bgs, overlay, fg_prepared, role = visual[:5]
+                slide_overlays = visual[5] if len(visual) > 5 else []
                 motion = ROLE_MOTION.get(role, "drift")
                 if role == "context" and i % 2 == 1:
                     motion = "pan_left"
@@ -1127,12 +1227,24 @@ def build_video_with_searched_images(
                     n_bgs=len(treated_bgs),
                 )
 
+                # Extract sentence boundary times for overlay transitions
+                overlay_change_times = None
+                if len(slide_overlays) > 1 and char_starts:
+                    overlay_change_times = _extract_sentence_times(
+                        script=script,
+                        char_ends=char_ends,
+                        duration=duration,
+                        n_overlays=len(slide_overlays),
+                    )
+
                 # Shift visual cue times by pre-roll offset
                 if pre_roll > 0:
                     if fg_change_times:
                         fg_change_times = [t + pre_roll for t in fg_change_times]
                     if bg_change_times:
                         bg_change_times = [t + pre_roll for t in bg_change_times]
+                    if overlay_change_times:
+                        overlay_change_times = [t + pre_roll for t in overlay_change_times]
 
                 clip = _make_dynamic_slide_clip(
                     treated_bgs=treated_bgs,
@@ -1145,6 +1257,8 @@ def build_video_with_searched_images(
                     fg_change_times=fg_change_times,
                     bg_change_times=bg_change_times,
                     caption_safe_pct=caption_safe_pct,
+                    cinematic_overlays=slide_overlays,
+                    overlay_change_times=overlay_change_times,
                 )
 
                 # Free PIL images now — numpy arrays are held in the clip closure
@@ -1153,6 +1267,8 @@ def build_video_with_searched_images(
                 overlay.close()
                 for fg in fg_prepared:
                     fg.close()
+                for co in slide_overlays:
+                    co.close()
 
                 # Build audio: voiceover + SFX synced to visual events
                 if pre_roll > 0:
@@ -1276,6 +1392,7 @@ def build_video_from_slides(
     result = {"scripts": scripts}
 
     # Generate cinematic overlay prompts if enabled
+    # overlay_prompts is list[list[str]] — multiple prompts per slide
     overlay_prompts = None
     cinematic_overlays = None
     if use_overlays:
@@ -1289,6 +1406,7 @@ def build_video_from_slides(
         result["overlay_prompts"] = overlay_prompts
 
         # For web_images path, pre-generate overlay PIL images
+        # Generate ALL overlays per slide (multiple per slide for sentence sync)
         if use_web_images:
             img_w = 1080 if aspect_ratio == "9:16" else 1920
             img_h = 1920 if aspect_ratio == "9:16" else 1080
@@ -1299,19 +1417,24 @@ def build_video_from_slides(
                 "cta": "golden_hour",
             }
             import gc
-            cinematic_overlays = []
-            for i, op in enumerate(overlay_prompts):
+            cinematic_overlays = []  # list[list[Image]] — multiple per slide
+            for i, slide_prompts in enumerate(overlay_prompts):
                 role = get_slide_role(i, len(slides))
                 eff_style = auto_styles.get(role, "cinematic_bokeh") if overlay_style == "auto" else overlay_style
-                try:
-                    co = generate_ai_overlay(
-                        prompt=op, width=img_w, height=img_h,
-                        style=eff_style, role=role,
-                    )
-                    cinematic_overlays.append(co)
-                except Exception:
-                    cinematic_overlays.append(None)
-                gc.collect()
+                # Handle both list[str] and str (for backwards compat)
+                prompts = slide_prompts if isinstance(slide_prompts, list) else [slide_prompts]
+                slide_overlays = []
+                for op in prompts:
+                    try:
+                        co = generate_ai_overlay(
+                            prompt=op, width=img_w, height=img_h,
+                            style=eff_style, role=role,
+                        )
+                        slide_overlays.append(co)
+                    except Exception:
+                        slide_overlays.append(None)
+                    gc.collect()
+                cinematic_overlays.append(slide_overlays)
 
     if use_web_images:
         from src.content.generator import generate_image_search_queries
