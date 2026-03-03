@@ -713,6 +713,16 @@ def build_video(
 
             # Load audio to determine duration
             audio_clip = AudioFileClip(audio_path)
+
+            # First slide: add pre-roll silence so the voiceover doesn't
+            # start at t=0 (prevents first words being lost to buffering)
+            if i == 0:
+                from moviepy import CompositeAudioClip
+                pre_roll = 0.5
+                audio_clip = CompositeAudioClip(
+                    [audio_clip.with_start(pre_roll)]
+                ).with_duration(audio_clip.duration + pre_roll)
+
             duration = max(audio_clip.duration + padding, min_duration)
 
             # Create image clip with audio
@@ -742,6 +752,7 @@ def build_video(
             codec="libx264",
             audio_codec="aac",
             logger="bar",
+            ffmpeg_params=["-movflags", "+faststart"],
         )
 
         # Cleanup
@@ -814,6 +825,16 @@ def build_video_with_ai_images(
             del audio_bytes
 
             audio_clip = AudioFileClip(audio_path)
+
+            # First slide: add pre-roll silence so the voiceover doesn't
+            # start at t=0 (prevents first words being lost to buffering)
+            if i == 0:
+                from moviepy import CompositeAudioClip
+                pre_roll = 0.5
+                audio_clip = CompositeAudioClip(
+                    [audio_clip.with_start(pre_roll)]
+                ).with_duration(audio_clip.duration + pre_roll)
+
             duration = max(audio_clip.duration + padding, min_duration)
 
             img_clip = (
@@ -834,6 +855,7 @@ def build_video_with_ai_images(
         final.write_videofile(
             output_path, fps=24, codec="libx264",
             audio_codec="aac", logger="bar",
+            ffmpeg_params=["-movflags", "+faststart"],
         )
 
         for clip in slide_clips:
@@ -1081,7 +1103,11 @@ def build_video_with_searched_images(
             del audio_bytes
 
             vo_clip = AudioFileClip(vo_path)
-            duration = max(vo_clip.duration + padding, min_duration)
+
+            # First slide: add pre-roll silence so the voiceover doesn't
+            # start at t=0 (prevents first words being lost to buffering)
+            pre_roll = 0.5 if i == 0 else 0.0
+            duration = max(vo_clip.duration + pre_roll + padding, min_duration)
 
             if visual[0] == "dynamic":
                 _, treated_bgs, overlay, fg_prepared, role = visual
@@ -1100,6 +1126,13 @@ def build_video_with_searched_images(
                     n_cards=n_fg_transitions,
                     n_bgs=len(treated_bgs),
                 )
+
+                # Shift visual cue times by pre-roll offset
+                if pre_roll > 0:
+                    if fg_change_times:
+                        fg_change_times = [t + pre_roll for t in fg_change_times]
+                    if bg_change_times:
+                        bg_change_times = [t + pre_roll for t in bg_change_times]
 
                 clip = _make_dynamic_slide_clip(
                     treated_bgs=treated_bgs,
@@ -1122,6 +1155,8 @@ def build_video_with_searched_images(
                     fg.close()
 
                 # Build audio: voiceover + SFX synced to visual events
+                if pre_roll > 0:
+                    vo_clip = vo_clip.with_start(pre_roll)
                 audio_parts = [vo_clip]
 
                 # Resolve actual timing (may be voice-synced or fallback)
@@ -1147,11 +1182,21 @@ def build_video_with_searched_images(
                 clip = clip.with_audio(mixed_audio)
             else:
                 _, png_path = visual
-                clip = (
-                    ImageClip(png_path)
-                    .with_duration(duration)
-                    .with_audio(vo_clip)
-                )
+                if pre_roll > 0:
+                    delayed_vo = CompositeAudioClip(
+                        [vo_clip.with_start(pre_roll)]
+                    ).with_duration(duration)
+                    clip = (
+                        ImageClip(png_path)
+                        .with_duration(duration)
+                        .with_audio(delayed_vo)
+                    )
+                else:
+                    clip = (
+                        ImageClip(png_path)
+                        .with_duration(duration)
+                        .with_audio(vo_clip)
+                    )
 
             slide_clips.append(clip)
             # Free visual data for this slide (clip holds its own refs)
@@ -1172,6 +1217,7 @@ def build_video_with_searched_images(
         final_video.write_videofile(
             output_path, fps=24, codec="libx264",
             audio_codec="aac", logger="bar",
+            ffmpeg_params=["-movflags", "+faststart"],
         )
 
         for clip in slide_clips:

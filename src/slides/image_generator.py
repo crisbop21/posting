@@ -581,6 +581,8 @@ def _gradient_overlay(
     """Apply a role-aware gradient overlay for text readability.
 
     Uses numpy for efficient gradient computation instead of per-row drawing.
+    Alpha values are tuned for AI-generated cinematic backgrounds which tend
+    to be brighter and more detailed than stock photos.
 
     Hook:    heavier at top (where the massive title sits)
     Context: balanced mid-range darkening
@@ -597,18 +599,18 @@ def _gradient_overlay(
     ab = accent_color[2] * 0.12
 
     if role == "hook":
-        alpha = np.where(t < 0.55, 210 - t * 100, 140 + (t - 0.55) * 180)
+        alpha = np.where(t < 0.55, 230 - t * 80, 170 + (t - 0.55) * 140)
     elif role == "payoff":
-        alpha = 100 + t * 120
+        alpha = 155 + t * 80
         ar = accent_color[0] * 0.20
         ag = accent_color[1] * 0.20
         ab = accent_color[2] * 0.20
     elif role == "cta":
-        alpha = np.full_like(t, 190)
+        alpha = np.full_like(t, 210)
     else:  # context
         alpha = np.where(
-            t < 0.25, 190 - t * 120,
-            np.where(t > 0.75, 130 + (t - 0.75) * 200, 130),
+            t < 0.25, 210 - t * 80,
+            np.where(t > 0.75, 175 + (t - 0.75) * 140, 175),
         )
 
     alpha = np.clip(alpha, 0, 255).astype(np.uint8)
@@ -785,8 +787,11 @@ def _draw_shadowed_text(
     fill: tuple,
     shadow_offset: int = 3,
 ):
-    """Draw text with a hard drop shadow for readability."""
+    """Draw text with a double drop shadow for readability against bright backgrounds."""
     sx, sy = xy
+    # Outer shadow (larger offset, adds depth)
+    draw.text((sx + shadow_offset + 2, sy + shadow_offset + 2), text, font=font, fill=(0, 0, 0))
+    # Inner shadow (crisp edge)
     draw.text((sx + shadow_offset, sy + shadow_offset), text, font=font, fill=(0, 0, 0))
     draw.text((sx, sy), text, font=font, fill=fill)
 
@@ -831,7 +836,8 @@ def _draw_line_with_highlights(
             continue
         is_number = bool(_NUMBER_RE.fullmatch(part))
         color = highlight_color if is_number else default_color
-        # Shadow
+        # Double shadow for contrast against bright backgrounds
+        draw.text((cursor_x + shadow_offset + 2, y + shadow_offset + 2), part, font=font, fill=(0, 0, 0))
         draw.text((cursor_x + shadow_offset, y + shadow_offset), part, font=font, fill=(0, 0, 0))
         draw.text((cursor_x, y), part, font=font, fill=color)
         bbox = font.getbbox(part)
@@ -1426,8 +1432,8 @@ def composite_slide(
     accent_c = _hex_to_tuple(colors.get("accent", "#F7B731"))
     role = get_slide_role(slide_index, total_slides)
 
-    # Layer 1: Blur background
-    blur_radius = 18 if role == "hook" else 14
+    # Layer 1: Blur background (heavier for AI-generated images)
+    blur_radius = 24 if role == "hook" else 20
     img = _blur_background(bg_image, radius=blur_radius)
 
     # Layer 2: Role-aware gradient overlay
@@ -1476,12 +1482,14 @@ def treat_background(
     """Apply blur + gradient treatment and upscale for Ken Burns animation.
 
     Returns an oversized treated image (target_size * bg_scale).
+    Blur radius is tuned for AI-generated cinematic backgrounds which are
+    more detailed and need heavier smoothing for text readability.
     """
     accent_c = _hex_to_tuple(accent_hex)
     scaled_w = int(target_w * bg_scale)
     scaled_h = int(target_h * bg_scale)
     bg = bg_image.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
-    blur_radius = 18 if role == "hook" else 14
+    blur_radius = 24 if role == "hook" else 20
     bg = _blur_background(bg, radius=blur_radius)
     bg = _gradient_overlay(bg, accent_c, role=role)
     return bg
@@ -1712,7 +1720,7 @@ def generate_all_ai_images(
                 if j == 0:
                     gen_prompt = prompt
                 else:
-                    gen_prompt = f"{prompt}, alternative angle, different composition"
+                    gen_prompt = f"{prompt}, alternative angle, different composition, cinematic realistic"
 
                 img_bytes = generate_image(
                     prompt=gen_prompt, width=width, height=height,
