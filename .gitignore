@@ -7,4 +7,5 @@ build/
 venv/
 .env
 output/
+saved_topics/
 *.pptx

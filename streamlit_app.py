@@ -18,6 +18,7 @@ import anthropic
 import streamlit as st
 import yaml
 
+from src.topic_store import save_topic, load_topic, list_topics, delete_topic
 from src.research.news import fetch_news_topics, format_news_for_prompt
 from src.research.reddit import fetch_reddit_topics, format_reddit_for_prompt
 from src.research.web_search import search_claim
@@ -473,6 +474,7 @@ for key, default in {
     "research_facts": [],
     "topic_options": [],
     "selected_topic": None,
+    "topic_id": None,
     "verified_bullets": [],
     "angle": "",
     "angle_verified": False,
@@ -564,6 +566,55 @@ if st.session_state.step > 1:
 
 if st.session_state.step == 1:
     st.header("Step 1: Pick a Topic")
+
+    # ── Saved Topics ──────────────────────────────────────────────────────
+    saved = list_topics()
+    if saved:
+        with st.expander(f"Saved Topics ({len(saved)})", expanded=False):
+            st.caption("Resume a previous topic with its verified data and research.")
+            for rec in saved:
+                t = rec["topic"]
+                bullet_count = len(rec.get("verified_bullets", []))
+                angle_text = rec.get("angle", "")
+                with st.container(border=True):
+                    info_cols = st.columns([8, 2, 2])
+                    info_cols[0].markdown(f"**{t['title']}**")
+                    badge_parts = []
+                    if bullet_count:
+                        badge_parts.append(f"{bullet_count} data points")
+                    if angle_text:
+                        badge_parts.append(f"angle: {angle_text[:40]}")
+                    if badge_parts:
+                        info_cols[0].caption(" · ".join(badge_parts))
+                    else:
+                        info_cols[0].caption(t.get("description", "")[:80])
+                    if info_cols[1].button(
+                        "Resume",
+                        key=f"load_{rec['topic_id']}",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+                        st.session_state.selected_topic = rec["topic"]
+                        st.session_state.topic_id = rec["topic_id"]
+                        st.session_state.research_text = rec.get("research_text", "")
+                        st.session_state.research_facts = rec.get("research_facts", [])
+                        st.session_state.verified_bullets = rec.get("verified_bullets", [])
+                        st.session_state.angle = rec.get("angle", "")
+                        st.session_state.user_facts = rec.get("user_facts", "")
+                        # Jump to the furthest meaningful step
+                        if rec.get("verified_bullets"):
+                            st.session_state.step = 3
+                        else:
+                            st.session_state.step = 2
+                        st.rerun()
+                    if info_cols[2].button(
+                        "Delete",
+                        key=f"del_{rec['topic_id']}",
+                        use_container_width=True,
+                    ):
+                        delete_topic(rec["topic_id"])
+                        st.rerun()
+        st.divider()
 
     research_mode = st.radio(
         "How do you want to find a topic?",
@@ -720,6 +771,12 @@ if st.session_state.step == 1:
                     use_container_width=True,
                 ):
                     st.session_state.selected_topic = t
+                    tid = save_topic(
+                        t,
+                        research_text=st.session_state.research_text,
+                        research_facts=st.session_state.research_facts,
+                    )
+                    st.session_state.topic_id = tid
                     st.session_state.step = 2
                     st.rerun()
 
@@ -750,6 +807,13 @@ elif st.session_state.step == 2:
                     audience=audience,
                 )
                 st.session_state.verified_bullets = bullets
+                tid = save_topic(
+                    topic,
+                    verified_bullets=bullets,
+                    research_text=st.session_state.research_text,
+                    research_facts=st.session_state.research_facts,
+                )
+                st.session_state.topic_id = tid
                 st.rerun()
         except anthropic.APIError as exc:
             st.error(f"API error: {exc}")
@@ -867,6 +931,13 @@ elif st.session_state.step == 3:
 
             st.session_state.verified_bullets = combined
             st.session_state["angle_verified"] = True
+            save_topic(
+                topic,
+                verified_bullets=combined,
+                research_text=st.session_state.research_text,
+                research_facts=st.session_state.research_facts,
+                angle=angle.strip(),
+            )
             st.rerun()
 
     with tab_data:
@@ -894,6 +965,14 @@ elif st.session_state.step == 3:
             if user_bullets:
                 st.session_state.verified_bullets = bullets + user_bullets
                 st.toast(f"Added {len(user_bullets)} user-provided data points")
+                save_topic(
+                    topic,
+                    verified_bullets=bullets + user_bullets,
+                    research_text=st.session_state.research_text,
+                    research_facts=st.session_state.research_facts,
+                    angle=st.session_state.angle,
+                    user_facts=user_facts.strip(),
+                )
             st.rerun()
 
     current_bullets = st.session_state.verified_bullets
