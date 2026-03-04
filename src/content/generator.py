@@ -1303,11 +1303,12 @@ Match the style to each slide's mood:
 - CTA slides: Use clean styles (cinematic_bokeh, golden_hour) that keep focus on the call to action
 """
 
-    prompt = f"""You are a cinematic visual director creating overlay image prompts for TikTok/Instagram content.
+    prompt = f"""You are an award-winning cinematographer and visual effects artist creating overlay image prompts for premium TikTok/Instagram content.
 
 These overlays are TRANSPARENT foreground elements layered ON TOP of slide backgrounds to add
-cinematic depth, atmosphere, and professional polish. Think of them like the film grain,
-bokeh, light leaks, and atmospheric effects that make content look like it was shot on cinema cameras.
+cinematic depth, atmosphere, and professional polish. Think of them like the atmospheric effects
+in high-budget film: the organic bokeh orbs in a Wong Kar-wai film, the golden light leaks of a
+Terrence Malick sunrise, the volumetric haze in a Denis Villeneuve sci-fi scene.
 
 Topic: {topic or 'finance'}
 Angle: {angle or 'general'}
@@ -1321,25 +1322,30 @@ Generate MULTIPLE overlay image prompts per slide — one for each sentence in t
 This creates visual rhythm: as the narration reads each sentence, the overlay transitions to
 match the sentence's content and mood. Each slide should have 2-4 overlay prompts.
 
-Each prompt must describe a TRANSPARENT overlay effect that:
+CRITICAL DESIGN PRINCIPLES (follow strictly):
 
-1. Creates cinematic depth — the viewer should feel like they're watching through a cinema camera lens
-2. Is visually linked to the specific sentence it accompanies (e.g. a sentence about "growth" → upward light streaks)
-3. Uses real photography/cinematography terminology: bokeh, f-stop, anamorphic, Rembrandt lighting, lens flare, film grain
-4. Specifies the exact look: light direction, color temperature (warm amber 3200K or cool blue 5600K), opacity feel
-5. Matches the sentence's emotional tone (bullish = warm gold/green tones, bearish = cool blue/red tones, urgent = high contrast)
-6. Is SUBTLE and enhances readability — never overwhelms the slide text
-7. Has elements positioned toward edges and corners, keeping the center relatively clear for text
-8. Creates the illusion of depth of field — as if foreground elements are slightly out of focus
-9. Transitions smoothly from the previous overlay (avoid jarring style jumps within one slide)
-10. Never includes text, logos, watermarks, or recognizable faces
-11. Is 25-50 words — specific enough for photorealistic results
+1. LESS IS MORE — One beautiful, well-placed effect beats three stacked effects. Each overlay
+   should have ONE dominant visual element (e.g., bokeh orbs OR light leak, not both)
+2. EDGE COMPOSITION — All visual elements must be concentrated at edges, corners, and borders.
+   The center 60% of the frame must remain clear for text readability
+3. DEPTH & DIMENSION — Create parallax-like depth: foreground out-of-focus elements in front,
+   atmospheric haze behind. This gives the illusion of shooting through a real camera
+4. NATURAL LIGHTING — Match real-world light behavior. Light leaks bleed from one direction.
+   Bokeh orbs vary in size (larger = closer to camera). God rays converge toward a source
+5. COLOR HARMONY — Use analogous colors (warm: amber/gold/peach, cool: teal/blue/indigo).
+   Never use more than 2-3 colors per overlay. Match the sentence's emotional tone
+6. ORGANIC TEXTURE — Include subtle imperfections: slight lens dust, micro film grain, natural
+   flare artifacts. This sells the "shot on cinema camera" look
+7. SMOOTH TRANSITIONS — Each overlay within a slide should feel like a camera movement
+   (rack focus, dolly, pan) rather than a hard cut between effects
 
-Camera/lens keywords to use: "shot on 85mm f/1.2", "anamorphic lens flare", "35mm film",
-"shallow depth of field", "Zeiss Master Prime", "cinematic color grade"
-
-Effect keywords: "transparent overlay", "light overlay", "atmospheric haze",
-"bokeh foreground elements", "dust particles in light", "soft lens bloom"
+Each prompt must:
+- Use real cinematography terms: bokeh, anamorphic, f-stop, rack focus, lens bloom, halation
+- Specify light direction and color temperature (3200K warm / 5600K daylight / 6500K cool)
+- Be 30-50 words — vivid and specific enough for photorealistic AI generation
+- Never include text, logos, watermarks, or recognizable faces
+- Describe the effect as if directing a camera operator ("soft golden bokeh orbs drifting
+  from upper-left corner, out of focus at f/1.4, warm 3200K amber tones")
 
 Return your response as a JSON array of arrays. Each inner array has one prompt per sentence:
 [

@@ -493,6 +493,7 @@ for key, default in {
     "video_scripts": [],
     "video_search_queries": [],
     "video_search_results": {},
+    "video_build_error": None,
     "ai_image_paths": [],
     "ai_image_prompts": [],
     "ai_overlay_prompts": [],
@@ -1948,6 +1949,7 @@ elif st.session_state.step == 6:
                     use_ai = ai_images_enabled
                     spinner_msg = "Generating AI images and building video..." if use_ai else "Searching for images and building video..."
 
+                    video_success = False
                     with st.spinner(spinner_msg):
                         try:
                             _topic = st.session_state.selected_topic["title"] if st.session_state.selected_topic else ""
@@ -1991,10 +1993,23 @@ elif st.session_state.step == 6:
 
                             st.session_state.video_path = web_result["video_path"]
                             st.session_state.video_search_results = web_result["search_results"]
+                            st.session_state.video_build_error = None
+                            video_success = True
 
                         except Exception as exc:
+                            import traceback
+                            tb = traceback.format_exc()
+                            st.session_state.video_build_error = f"{exc}\n\n{tb}"
                             st.error(f"Video build failed: {exc}")
                     gc.collect()
+                    if video_success:
+                        st.rerun()
+
+            # ── Show persistent error ─────────────────────────────────
+            if st.session_state.get("video_build_error"):
+                st.error(f"Video build failed: {st.session_state.video_build_error}")
+                if st.button("Dismiss Error", key="dismiss_video_err"):
+                    st.session_state.video_build_error = None
                     st.rerun()
 
             # ── Show result ────────────────────────────────────────────
