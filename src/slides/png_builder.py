@@ -643,15 +643,18 @@ def build_pngs(
         # -- Left accent bar --
         draw.rectangle([0, 0, accent_bar_w, img_h], fill=accent_c)
 
-        # -- Slide counter top-right --
-        counter_font = _load_font("sans", 28)
+        # -- Slide counter top-right (above title zone) --
+        counter_font = _load_font("sans", 24)
         counter_text = f"{idx + 1}/{total}"
         counter_bbox = counter_font.getbbox(counter_text)
         counter_w = counter_bbox[2] - counter_bbox[0]
+        counter_x = img_w - margin - counter_w
+        counter_y = int(img_h * 0.025)
+        # Subtle muted counter — doesn't compete with title
         draw.text(
-            (img_w - margin - counter_w, int(img_h * 0.045)),
+            (counter_x, counter_y),
             counter_text,
-            fill=accent_c,
+            fill=muted_c,
             font=counter_font,
         )
 

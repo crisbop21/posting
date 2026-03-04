@@ -230,59 +230,86 @@ def generate_image(
 
 CINEMATIC_OVERLAY_PRESETS = {
     "cinematic_bokeh": {
-        "opacity": 0.35,
-        "blur_radius": 6,
-        "color_temp": "warm",       # slight warm shift
+        "opacity": 0.22,
+        "blur_radius": 8,
+        "color_temp": "warm",       # gentle warm shift
         "vignette": True,
+        "vignette_strength": 0.25,
         "bloom": True,
+        "bloom_intensity": 0.10,
+        "bloom_radius": 28,
+        "contrast_boost": 1.08,
     },
     "light_leak": {
-        "opacity": 0.30,
-        "blur_radius": 12,
+        "opacity": 0.20,
+        "blur_radius": 15,
         "color_temp": "warm",
         "vignette": False,
         "bloom": True,
+        "bloom_intensity": 0.18,
+        "bloom_radius": 35,
+        "contrast_boost": 1.05,
     },
     "film_noir": {
-        "opacity": 0.40,
+        "opacity": 0.28,
         "blur_radius": 2,
         "color_temp": "cool",
         "vignette": True,
+        "vignette_strength": 0.35,
         "bloom": False,
+        "contrast_boost": 1.15,
     },
     "volumetric_light": {
-        "opacity": 0.30,
-        "blur_radius": 8,
+        "opacity": 0.22,
+        "blur_radius": 10,
         "color_temp": "neutral",
         "vignette": False,
         "bloom": True,
+        "bloom_intensity": 0.14,
+        "bloom_radius": 30,
+        "contrast_boost": 1.06,
     },
     "neon_glow": {
-        "opacity": 0.35,
-        "blur_radius": 4,
+        "opacity": 0.25,
+        "blur_radius": 5,
         "color_temp": "cool",
         "vignette": True,
+        "vignette_strength": 0.28,
         "bloom": True,
+        "bloom_intensity": 0.16,
+        "bloom_radius": 25,
+        "contrast_boost": 1.10,
     },
     "golden_hour": {
-        "opacity": 0.30,
-        "blur_radius": 6,
+        "opacity": 0.20,
+        "blur_radius": 8,
         "color_temp": "warm",
         "vignette": True,
+        "vignette_strength": 0.22,
         "bloom": True,
+        "bloom_intensity": 0.12,
+        "bloom_radius": 30,
+        "contrast_boost": 1.05,
     },
     "film_grain": {
-        "opacity": 0.25,
+        "opacity": 0.18,
         "blur_radius": 0,
         "color_temp": "warm",
         "vignette": True,
+        "vignette_strength": 0.20,
         "bloom": False,
+        "contrast_boost": 1.04,
     },
 }
 
 
 def _apply_color_temperature(img: Image.Image, temp: str) -> Image.Image:
-    """Shift color temperature: warm adds amber, cool adds blue."""
+    """Shift color temperature with natural, cinema-grade tinting.
+
+    Warm uses a soft amber (like golden hour sunlight, ~3200K).
+    Cool uses a gentle steel blue (like overcast daylight, ~6500K).
+    Applied as a very subtle tint to avoid washing out the image.
+    """
     if temp == "neutral":
         return img
     if img.mode != "RGBA":
@@ -290,16 +317,22 @@ def _apply_color_temperature(img: Image.Image, temp: str) -> Image.Image:
 
     w, h = img.size
     if temp == "warm":
-        tint = Image.new("RGBA", (w, h), (255, 180, 80, 18))
+        # Natural golden amber — softer than pure orange, like actual warm light
+        tint = Image.new("RGBA", (w, h), (255, 200, 120, 12))
     else:  # cool
-        tint = Image.new("RGBA", (w, h), (80, 140, 255, 18))
+        # Steel blue — cinematic cool tone, not overly saturated
+        tint = Image.new("RGBA", (w, h), (100, 160, 240, 12))
     result = Image.alpha_composite(img, tint)
     tint.close()
     return result
 
 
 def _apply_vignette(img: Image.Image, strength: float = 0.4) -> Image.Image:
-    """Apply a soft radial vignette darkening toward the edges.
+    """Apply a natural, cinema-grade radial vignette.
+
+    Uses a smooth elliptical falloff that mimics real lens vignetting
+    (darker corners, gradual transition). The power curve creates a
+    gentle roll-off rather than a harsh ring.
 
     Uses numpy for efficient computation instead of pixel-by-pixel loops.
     """
@@ -309,59 +342,102 @@ def _apply_vignette(img: Image.Image, strength: float = 0.4) -> Image.Image:
         img = img.convert("RGBA")
     w, h = img.size
 
-    # Build radial distance map using numpy (vectorized, ~100x faster)
+    # Elliptical distance map — accounts for non-square aspect ratios
     ys = np.linspace(-1, 1, h, dtype=np.float32)
     xs = np.linspace(-1, 1, w, dtype=np.float32)
     xx, yy = np.meshgrid(xs, ys)
-    dist = np.sqrt(xx * xx + yy * yy)
-    np.clip(dist, 0, 1, out=dist)
+    # Elliptical distance (wider horizontally for portrait slides)
+    dist = np.sqrt(xx * xx + yy * yy * 0.85)
+    np.clip(dist, 0, 1.4, out=dist)
+    dist /= 1.4  # Normalize so corners reach 1.0
 
-    # Compute alpha mask: stronger at edges, zero at center
-    alpha = (255 * strength * np.power(dist, 2.5)).astype(np.uint8)
+    # Smooth power curve — gradual darkening, strong only at very edges
+    alpha = (255 * strength * np.power(dist, 3.0)).astype(np.uint8)
 
-    vignette = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    vignette.putalpha(Image.fromarray(alpha, mode="L"))
-    # Set RGB to black (vignette darkens)
+    # Build vignette layer
     black = Image.new("RGB", (w, h), (0, 0, 0))
-    vignette = Image.merge("RGBA", (*black.split(), Image.fromarray(alpha, mode="L")))
+    alpha_mask = Image.fromarray(alpha, mode="L")
+    vignette = Image.merge("RGBA", (*black.split(), alpha_mask))
     result = Image.alpha_composite(img, vignette)
 
-    # Cleanup intermediates
+    # Cleanup
     vignette.close()
     black.close()
+    alpha_mask.close()
     del alpha, dist, xx, yy, xs, ys
 
     return result
 
 
-def _apply_bloom(img: Image.Image, intensity: float = 0.15) -> Image.Image:
-    """Add a soft bloom/glow to bright areas of the overlay."""
+def _apply_bloom(img: Image.Image, intensity: float = 0.15, radius: int = 28) -> Image.Image:
+    """Add a soft, natural bloom/glow that targets only the brightest highlights.
+
+    Professional bloom isolates bright regions above a luminance threshold,
+    then applies a wide Gaussian blur to create a diffused halo. This mimics
+    real lens bloom (like shooting wide open on a Zeiss Master Prime) rather
+    than uniformly brightening the entire image.
+
+    Args:
+        img: Source RGBA image.
+        intensity: Bloom opacity (0.0-1.0). Lower = more subtle.
+        radius: Gaussian blur radius. Larger = softer, more diffused glow.
+    """
+    import numpy as np
+
     if img.mode != "RGBA":
         img = img.convert("RGBA")
-    # Extract and blur bright areas
-    bright = img.copy()
-    enhancer = ImageEnhance.Brightness(bright)
-    bright_enhanced = enhancer.enhance(1.5)
-    bright.close()
-    bloom = bright_enhanced.filter(ImageFilter.GaussianBlur(radius=20))
-    bright_enhanced.close()
-    # Reduce bloom opacity
-    bloom_data = bloom.split()
-    if len(bloom_data) == 4:
-        alpha_channel = bloom_data[3].point(lambda p: int(p * intensity))
-        bloom_final = Image.merge("RGBA", (*bloom_data[:3], alpha_channel))
-        bloom.close()
-        bloom = bloom_final
-    result = Image.alpha_composite(img, bloom)
+
+    # Extract only the bright highlights (luminance threshold)
+    rgb = img.convert("RGB")
+    arr = np.array(rgb, dtype=np.float32)
+    # Luminance per pixel (ITU-R BT.709)
+    lum = 0.2126 * arr[:, :, 0] + 0.7152 * arr[:, :, 1] + 0.0722 * arr[:, :, 2]
+    # Threshold: only bloom pixels above 70% brightness
+    threshold = 180.0
+    mask = np.clip((lum - threshold) / (255.0 - threshold), 0, 1)
+    # Apply mask to isolate highlights
+    bright_arr = arr * mask[:, :, np.newaxis]
+    bright_img = Image.fromarray(bright_arr.astype(np.uint8), mode="RGB")
+    rgb.close()
+
+    # Wide blur for soft, diffused glow
+    bloom = bright_img.filter(ImageFilter.GaussianBlur(radius=radius))
+    bright_img.close()
+
+    # Convert to RGBA with controlled opacity
+    bloom_rgba = bloom.convert("RGBA")
     bloom.close()
+    r, g, b, a = bloom_rgba.split()
+    # Set alpha based on bloom brightness * intensity
+    bloom_lum = Image.fromarray(
+        np.clip(
+            np.array(r, dtype=np.float32) * 0.33
+            + np.array(g, dtype=np.float32) * 0.34
+            + np.array(b, dtype=np.float32) * 0.33,
+            0, 255,
+        ).astype(np.uint8) if True else np.zeros((1,), dtype=np.uint8),
+        mode="L",
+    )
+    a_new = bloom_lum.point(lambda p: int(p * intensity))
+    bloom_final = Image.merge("RGBA", (r, g, b, a_new))
+    bloom_rgba.close()
+    bloom_lum.close()
+
+    result = Image.alpha_composite(img, bloom_final)
+    bloom_final.close()
+    del arr, lum, mask, bright_arr
+
     return result
 
 
 def _make_edge_fade(img: Image.Image, fade_pct: float = 0.15) -> Image.Image:
-    """Fade overlay to transparent toward edges, keeping center clear for text.
+    """Fade overlay to transparent in center, keeping edges atmospheric.
+
+    Creates a natural gradient that keeps the center clear for text readability
+    while allowing overlay effects (bokeh, light leaks, etc.) to be visible at
+    the edges and corners. The smooth elliptical falloff avoids hard transitions.
 
     Uses numpy for efficient computation instead of pixel-by-pixel loops.
-    Center is more transparent, edges keep the overlay — protects text readability.
     """
     import numpy as np
 
@@ -369,21 +445,31 @@ def _make_edge_fade(img: Image.Image, fade_pct: float = 0.15) -> Image.Image:
         img = img.convert("RGBA")
     w, h = img.size
 
-    # Build distance-from-center maps using numpy (vectorized)
+    # Smooth elliptical distance from center
     ys = np.abs(np.linspace(-1, 1, h, dtype=np.float32))
     xs = np.abs(np.linspace(-1, 1, w, dtype=np.float32))
     xx, yy = np.meshgrid(xs, ys)
 
-    # More transparent in center, opaque at edges
-    edge_factor = np.maximum(xx, yy)
-    alpha = (255 * np.minimum(np.power(edge_factor, 1.5) * 1.5, 1.0)).astype(np.uint8)
+    # Elliptical factor — matches portrait aspect ratio naturally
+    edge_factor = np.sqrt(xx * xx * 0.7 + yy * yy * 0.5)
 
-    mask = Image.fromarray(alpha, mode="L")
+    # Smooth S-curve transition: clear center, gradual fade-in at edges
+    # Start showing overlay only past ~40% from center
+    fade_start = 0.35
+    normalized = np.clip((edge_factor - fade_start) / (1.0 - fade_start), 0, 1)
+    # Smooth cubic easing for natural transition
+    alpha = (255 * normalized * normalized * (3.0 - 2.0 * normalized)).astype(np.uint8)
+
+    # Multiply with existing alpha (preserve transparency from source)
+    orig_alpha = np.array(img.split()[3], dtype=np.float32)
+    combined = (orig_alpha * alpha.astype(np.float32) / 255.0).astype(np.uint8)
+
+    mask = Image.fromarray(combined, mode="L")
     img.putalpha(mask)
 
     # Cleanup
     mask.close()
-    del alpha, edge_factor, xx, yy, xs, ys
+    del alpha, normalized, edge_factor, xx, yy, xs, ys, orig_alpha, combined
 
     return img
 
@@ -421,15 +507,27 @@ def process_cinematic_overlay(
     if img.mode != "RGBA":
         img = img.convert("RGBA")
 
-    # Apply blur for depth-of-field simulation
+    # Step 1: Subtle contrast boost — adds depth and richness before processing
+    contrast_factor = preset.get("contrast_boost", 1.0)
+    if contrast_factor != 1.0:
+        rgb_for_contrast = img.convert("RGB")
+        enhanced = ImageEnhance.Contrast(rgb_for_contrast).enhance(contrast_factor)
+        rgb_for_contrast.close()
+        # Restore alpha
+        _, _, _, a = img.split()
+        r, g, b = enhanced.split()
+        old_img = img
+        img = Image.merge("RGBA", (r, g, b, a))
+        old_img.close()
+        enhanced.close()
+
+    # Step 2: Depth-of-field blur (blur RGB only, preserve alpha)
     if preset["blur_radius"] > 0:
-        # Blur only the RGB channels, preserve alpha
         rgb = img.convert("RGB")
         blurred = rgb.filter(ImageFilter.GaussianBlur(radius=preset["blur_radius"]))
         rgb.close()
         blurred_rgba = blurred.convert("RGBA")
         blurred.close()
-        # Restore original alpha
         r, g, b, _ = blurred_rgba.split()
         _, _, _, a = img.split()
         old_img = img
@@ -437,35 +535,38 @@ def process_cinematic_overlay(
         old_img.close()
         blurred_rgba.close()
 
-    # Apply color temperature (each step frees the previous image internally)
+    # Step 3: Natural color temperature grading
     old_img = img
     img = _apply_color_temperature(img, preset["color_temp"])
     if img is not old_img:
         old_img.close()
 
-    # Apply bloom/glow to bright areas
+    # Step 4: Highlight-targeted bloom (only brightest areas glow)
     if preset.get("bloom"):
         old_img = img
-        img = _apply_bloom(img, intensity=0.12)
+        bloom_intensity = preset.get("bloom_intensity", 0.10)
+        bloom_radius = preset.get("bloom_radius", 28)
+        img = _apply_bloom(img, intensity=bloom_intensity, radius=bloom_radius)
         old_img.close()
 
-    # Fade edges: keep overlay strongest at edges/corners, lighter in center
+    # Step 5: Edge fade — clear center for text, atmospheric edges
     img = _make_edge_fade(img, fade_pct=0.20)
 
-    # Apply vignette
+    # Step 6: Natural lens vignette
     if preset.get("vignette"):
-        img = _apply_vignette(img, strength=0.3)
+        vignette_str = preset.get("vignette_strength", 0.25)
+        img = _apply_vignette(img, strength=vignette_str)
 
-    # Set overall opacity — adjust by role for visual hierarchy
+    # Step 7: Final opacity — role-aware for visual hierarchy
     role_opacity_mult = {
-        "hook": 1.15,     # Slightly stronger for maximum first-impression impact
+        "hook": 1.10,     # Slightly stronger for first-impression impact
         "context": 1.0,   # Standard — readable but atmospheric
-        "payoff": 1.1,    # Slightly elevated for emotional peak
-        "cta": 0.75,      # Reduced — keep CTA text clean and dominant
+        "payoff": 1.05,   # Slightly elevated for emotional peak
+        "cta": 0.70,      # Reduced — keep CTA text dominant
     }
     base_opacity = preset["opacity"]
     final_opacity = base_opacity * role_opacity_mult.get(role, 1.0)
-    final_opacity = min(final_opacity, 0.50)  # Hard cap to protect readability
+    final_opacity = min(final_opacity, 0.35)  # Hard cap — overlays enhance, never dominate
 
     # Apply final opacity to alpha channel
     r, g, b, a = img.split()
@@ -726,32 +827,40 @@ def _draw_branded_frame(
     lower_bar_y = int(h * 0.73)
     draw.rectangle([0, lower_bar_y, w, lower_bar_y + bar_h], fill=(*accent_c, 80))
 
-    # Slide counter pill (top-left, within title zone)
+    # Slide counter pill (top-right, above title zone to avoid overlap)
     if show_counter:
-        counter_font = _load_font("sans_bold", int(w * 0.032))
+        counter_font = _load_font("sans_bold", int(w * 0.026))
         counter_text = f"{slide_index + 1}/{total_slides}"
         counter_bbox = counter_font.getbbox(counter_text)
         counter_tw = counter_bbox[2] - counter_bbox[0]
         counter_th = counter_bbox[3] - counter_bbox[1]
 
-        pill_pad_x = int(w * 0.025)
-        pill_pad_y = int(h * 0.008)
-        pill_x = w - int(w * 0.15) - counter_tw - pill_pad_x  # away from right buttons
-        pill_y = int(h * 0.085)
+        pill_pad_x = int(w * 0.018)
+        pill_pad_y = int(h * 0.006)
+        # Position at top-right corner, well above the title zone (titles start at ~10%)
+        pill_x = w - int(w * 0.06) - counter_tw - pill_pad_x * 2
+        pill_y = int(h * 0.025)
         pill_w = counter_tw + pill_pad_x * 2
         pill_h = counter_th + pill_pad_y * 2
 
-        # Pill background
+        # Pill background — dark semi-transparent for readability on any background
         draw.rounded_rectangle(
             [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
             radius=pill_h // 2,
-            fill=(*accent_c, 180),
+            fill=(0, 0, 0, 140),
+        )
+        # Thin accent border around pill
+        draw.rounded_rectangle(
+            [pill_x, pill_y, pill_x + pill_w, pill_y + pill_h],
+            radius=pill_h // 2,
+            outline=(*accent_c, 160),
+            width=2,
         )
         draw.text(
-            (pill_x + pill_pad_x, pill_y + pill_pad_y - 2),
+            (pill_x + pill_pad_x, pill_y + pill_pad_y - 1),
             counter_text,
             font=counter_font,
-            fill=(255, 255, 255),
+            fill=(255, 255, 255, 230),
         )
 
     # Handle in the caption zone (~70% from top, above platform UI)
