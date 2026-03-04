@@ -53,6 +53,8 @@ from src.slides.video_builder import (
 )
 from src.slides.image_generator import (
     generate_slide_images,
+    generate_ai_overlay,
+    get_slide_role,
     CINEMATIC_OVERLAY_PRESETS,
 )
 
@@ -1957,6 +1959,50 @@ elif st.session_state.step == 6:
 
                             _require_api_key()
 
+                            # Generate cinematic overlays if enabled
+                            cinematic_overlay_images = None
+                            if st.session_state.overlays_enabled:
+                                img_w = 1080 if aspect_ratio_val == "9:16" else 1920
+                                img_h = 1920 if aspect_ratio_val == "9:16" else 1080
+                                effective_overlay_style = st.session_state.get("overlay_style", "auto")
+                                auto_styles = {
+                                    "hook": "volumetric_light",
+                                    "context": "cinematic_bokeh",
+                                    "payoff": "light_leak",
+                                    "cta": "golden_hour",
+                                }
+                                try:
+                                    overlay_prompts_list = generate_overlay_prompts(
+                                        slides=live_slides,
+                                        topic=_topic,
+                                        angle=_angle,
+                                        overlay_style=effective_overlay_style,
+                                    )
+                                    cinematic_overlay_images = []
+                                    for si, slide_prompts in enumerate(overlay_prompts_list):
+                                        role = get_slide_role(si, len(live_slides))
+                                        style = auto_styles.get(role, "cinematic_bokeh") if effective_overlay_style == "auto" else effective_overlay_style
+                                        slide_overlays = []
+                                        prompts = slide_prompts if isinstance(slide_prompts, list) else [slide_prompts]
+                                        for prompt in prompts:
+                                            try:
+                                                import time as _t
+                                                _t.sleep(1)
+                                                overlay_img = generate_ai_overlay(
+                                                    prompt=prompt,
+                                                    width=img_w,
+                                                    height=img_h,
+                                                    style=style,
+                                                    role=role,
+                                                )
+                                                slide_overlays.append(overlay_img)
+                                            except Exception:
+                                                slide_overlays.append(None)
+                                        cinematic_overlay_images.append(slide_overlays)
+                                except Exception as exc:
+                                    st.warning(f"Overlay generation failed (proceeding without): {exc}")
+                                    cinematic_overlay_images = None
+
                             if use_ai:
                                 # Generate proper AI image prompts (Cinematic realistic)
                                 image_prompts = generate_image_prompts(
@@ -1972,6 +2018,7 @@ elif st.session_state.step == 6:
                                     handle=handle,
                                     voice_id=elevenlabs_voice,
                                     image_source="ai",
+                                    cinematic_overlays=cinematic_overlay_images,
                                 )
                                 st.session_state.video_search_queries = image_prompts
                             else:
@@ -1988,6 +2035,7 @@ elif st.session_state.step == 6:
                                     output_dir="./output",
                                     handle=handle,
                                     voice_id=elevenlabs_voice,
+                                    cinematic_overlays=cinematic_overlay_images,
                                 )
                                 st.session_state.video_search_queries = search_queries
 
