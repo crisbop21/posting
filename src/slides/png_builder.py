@@ -29,10 +29,54 @@ _FALLBACK_PATHS = {
 
 
 def _load_font(style: str, size: int) -> ImageFont.FreeTypeFont:
+    """Load a TrueType font with multi-level fallback.
+
+    Tries: Liberation → DejaVu → any system TTF → PIL default.
+    """
+    # Try primary path
     path = _FONT_PATHS.get(style, _FONT_PATHS["sans"])
-    if not os.path.exists(path):
-        path = _FALLBACK_PATHS.get(style, _FALLBACK_PATHS["sans"])
-    return ImageFont.truetype(path, size)
+    if os.path.exists(path):
+        return ImageFont.truetype(path, size)
+
+    # Try fallback path
+    path = _FALLBACK_PATHS.get(style, _FALLBACK_PATHS["sans"])
+    if os.path.exists(path):
+        return ImageFont.truetype(path, size)
+
+    # Try common system font directories (macOS, Windows, Linux)
+    _bold = "bold" in style.lower()
+    _serif = "serif" in style.lower() and "sans" not in style.lower()
+    search_dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        os.path.expanduser("~/.local/share/fonts"),
+        os.path.expanduser("~/Library/Fonts"),      # macOS user
+        "/Library/Fonts",                             # macOS system
+        "/System/Library/Fonts",                      # macOS system
+        "C:\\Windows\\Fonts",                         # Windows
+    ]
+    for font_dir in search_dirs:
+        if not os.path.isdir(font_dir):
+            continue
+        for root, _dirs, files in os.walk(font_dir):
+            for f in files:
+                if not f.lower().endswith((".ttf", ".otf")):
+                    continue
+                fl = f.lower()
+                # Match bold/regular and serif/sans preference
+                if _bold and "bold" not in fl:
+                    continue
+                if not _bold and "bold" in fl:
+                    continue
+                if _serif and "sans" in fl:
+                    continue
+                try:
+                    return ImageFont.truetype(os.path.join(root, f), size)
+                except (OSError, IOError):
+                    continue
+
+    # Last resort: PIL default bitmap font (no size control but won't crash)
+    return ImageFont.load_default()
 
 
 def _hex_to_tuple(hex_color: str) -> tuple[int, int, int]:
