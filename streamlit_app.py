@@ -439,7 +439,7 @@ def _get_live_slides() -> list[dict]:
 
 
 @st.cache_data
-def _read_file_bytes(path: str, _mtime: float) -> bytes:
+def _read_file_bytes(path: str, mtime: float) -> bytes:
     """Read file bytes, cached by path and modification time."""
     with open(path, "rb") as f:
         return f.read()
@@ -451,7 +451,7 @@ def _cached_read(path: str) -> bytes:
 
 
 @st.cache_data
-def _build_zip_bytes(paths: tuple[str, ...], _mtimes: tuple[float, ...]) -> bytes:
+def _build_zip_bytes(paths: tuple[str, ...], mtimes: tuple[float, ...]) -> bytes:
     """Build a ZIP archive in memory, cached by file paths and mtimes."""
     import zipfile
     buf = io.BytesIO()
