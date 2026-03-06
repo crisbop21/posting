@@ -2148,6 +2148,8 @@ elif st.session_state.step == 6:
                                     output_dir="./output",
                                     handle=handle,
                                     voice_id=elevenlabs_voice,
+                                    topic=_topic,
+                                    angle=_angle,
                                 )
                                 st.session_state.video_search_queries = []
                             elif use_ai:

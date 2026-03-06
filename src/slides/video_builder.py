@@ -485,10 +485,74 @@ def _generate_whoosh_sfx(path, sample_rate=44100):
     _write_wav(path, signal, sample_rate)
 
 
+def _generate_reveal_sfx(path, sample_rate=44100):
+    """Generate an attention-grabbing 'reveal' impact — layered chime + sub bass.
+
+    Combines a bright harmonic chime with a short sub-bass thump for a
+    satisfying reveal moment when images/overlays appear.
+    """
+    import numpy as np
+
+    duration = 0.35
+    n = int(sample_rate * duration)
+    t = np.linspace(0, duration, n)
+
+    # Bright chime: two harmonically-related tones
+    chime = (
+        np.sin(2 * np.pi * 1200 * t) * 0.10
+        + np.sin(2 * np.pi * 1800 * t) * 0.06
+    )
+    chime *= np.exp(-t * 12)  # Fast decay
+
+    # Sub-bass thump for impact
+    bass = np.sin(2 * np.pi * 80 * t) * 0.15 * np.exp(-t * 18)
+
+    # Subtle noise transient at the start
+    rng = np.random.RandomState(77)
+    noise = rng.randn(n) * 0.04 * np.exp(-t * 40)
+
+    signal = chime + bass + noise
+    _write_wav(path, signal, sample_rate)
+
+
 # ── Foreground Image Preparation ────────────────────────────────────────────
 
 # Single centered foreground image position within the 36-73% image zone.
 FG_IMAGE_POS = (0.08, 0.36)  # (x_frac, y_frac) — centered horizontally
+
+
+def _fit_fg_image(img, fg_w, fg_h, corner_radius=24, bg_color=(13, 17, 23)):
+    """Fit entire image within bounding box without cropping (letterboxed).
+
+    Unlike _prepare_fg_image which center-crops, this preserves the full
+    image — ideal for charts where cropping loses data.
+
+    Returns an RGBA PIL Image ready for compositing.
+    """
+    from PIL import Image, ImageDraw
+
+    src_w, src_h = img.size
+    scale = min(fg_w / src_w, fg_h / src_h)
+    new_w = int(src_w * scale)
+    new_h = int(src_h * scale)
+
+    resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS).convert("RGBA")
+
+    # Place on transparent canvas centered in fg_w x fg_h
+    canvas = Image.new("RGBA", (fg_w, fg_h), (*bg_color, 0))
+    x_off = (fg_w - new_w) // 2
+    y_off = (fg_h - new_h) // 2
+    canvas.paste(resized, (x_off, y_off), resized)
+    resized.close()
+
+    # Rounded-corner mask
+    mask = Image.new("L", (fg_w, fg_h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [0, 0, fg_w - 1, fg_h - 1], radius=corner_radius, fill=255,
+    )
+    canvas.putalpha(mask)
+
+    return canvas
 
 
 def _prepare_fg_image(img, fg_w, fg_h, corner_radius=24):
@@ -716,7 +780,7 @@ def _make_dynamic_slide_clip(
             else:
                 frame = frame * (1.0 - co_a) + co_rgb * co_a
 
-        # ── 3. FOREGROUND IMAGE LAYER (always visible, crossfade rotation) ──
+        # ── 3. FOREGROUND IMAGE LAYER (pop-in scale + crossfade rotation) ──
         if fg_arrays:
             n_fg = len(fg_arrays)
             seg = sum(1 for ft in fg_change_times if t >= ft)
@@ -732,6 +796,33 @@ def _make_dynamic_slide_clip(
                 if 0 < time_to_change < fg_crossfade:
                     blend = 1.0 - time_to_change / fg_crossfade
 
+            # Pop-in scale animation: 93% → 100% over 0.3s with ease-out
+            pop_dur = 0.3
+            seg_start = fg_change_times[seg - 1] if seg > 0 else 0.0
+            time_in_seg = t - seg_start
+            if time_in_seg < pop_dur:
+                ease = 1.0 - (1.0 - time_in_seg / pop_dur) ** 3  # ease-out cubic
+                scale = 0.93 + 0.07 * ease
+            else:
+                scale = 1.0
+
+            if scale < 0.999:
+                # Scale from center of the fg region
+                scaled_w = int(cw * scale)
+                scaled_h = int(ch * scale)
+                crop_x = (cw - scaled_w) // 2
+                crop_y = (ch - scaled_h) // 2
+                fg_crop = cur_fg[crop_y:crop_y + scaled_h, crop_x:crop_x + scaled_w]
+                from PIL import Image as _PILImg
+                fg_resized = np.array(
+                    _PILImg.fromarray(fg_crop).resize(
+                        (cw, ch), _PILImg.Resampling.BILINEAR,
+                    )
+                )
+                cur_fg_used = fg_resized
+            else:
+                cur_fg_used = cur_fg
+
             y1 = max(0, fg_y)
             x1 = max(0, fg_x)
             y2 = min(target_h, fg_y + ch)
@@ -741,7 +832,7 @@ def _make_dynamic_slide_clip(
             sy2 = sy1 + (y2 - y1)
             sx2 = sx1 + (x2 - x1)
 
-            fg_slice = cur_fg[sy1:sy2, sx1:sx2].astype(np.float32)
+            fg_slice = cur_fg_used[sy1:sy2, sx1:sx2].astype(np.float32)
             if blend > 0.01 and next_seg < n_fg:
                 next_fg = fg_arrays[next_seg]
                 next_slice = next_fg[sy1:sy2, sx1:sx2].astype(np.float32)
@@ -1266,8 +1357,10 @@ def build_video_with_searched_images(
         # Pre-generate SFX files
         pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
         whoosh_sfx_path = os.path.join(tmp_dir, "sfx_whoosh.wav")
+        reveal_sfx_path = os.path.join(tmp_dir, "sfx_reveal.wav")
         _generate_pop_sfx(pop_sfx_path)
         _generate_whoosh_sfx(whoosh_sfx_path)
+        _generate_reveal_sfx(reveal_sfx_path)
 
         slide_clips = []
 
@@ -1357,19 +1450,32 @@ def build_video_with_searched_images(
                     vo_clip = vo_clip.with_start(pre_roll)
                 audio_parts = [vo_clip]
 
+                # Reveal SFX when foreground image first appears
+                if fg_prepared:
+                    reveal_t = pre_roll + 0.05
+                    sfx = AudioFileClip(reveal_sfx_path).with_start(reveal_t)
+                    audio_parts.append(sfx)
+
                 # Resolve actual timing (may be voice-synced or fallback)
                 actual_fg_times = fg_change_times or []
                 actual_bg_times = bg_change_times or []
 
-                # Whoosh on foreground image transitions
+                # Reveal SFX on foreground image transitions
                 for ft in actual_fg_times:
                     if ft < duration - 0.3:
-                        sfx = AudioFileClip(whoosh_sfx_path).with_start(ft)
+                        sfx = AudioFileClip(reveal_sfx_path).with_start(ft)
                         audio_parts.append(sfx)
 
+                # Whoosh on background transitions
                 for bt in actual_bg_times:
                     if bt < duration - 0.3:
                         sfx = AudioFileClip(whoosh_sfx_path).with_start(bt)
+                        audio_parts.append(sfx)
+
+                # Reveal SFX on cinematic overlay transitions
+                for ot in (overlay_change_times or []):
+                    if ot < duration - 0.3:
+                        sfx = AudioFileClip(reveal_sfx_path).with_start(ot)
                         audio_parts.append(sfx)
 
                 if len(audio_parts) > 1:
@@ -1597,16 +1703,21 @@ def build_video_with_chart_overlays(
     min_duration: float = 4.0,
     padding: float = 0.8,
     caption_safe_pct: float = 0.27,
+    topic: str = "",
+    angle: str = "",
 ) -> dict:
-    """Build a narrated MP4 using predetermined backgrounds + chart image overlays.
+    """Build a narrated MP4 using chart overlays + AI images for non-chart slides.
 
-    Uses algorithmic Ken Burns backgrounds (no API calls) and composites
-    user-provided chart images as foreground overlays on relevant slides.
+    Slides with a mapped chart get the chart as foreground overlay.
+    Slides without a chart get a web-searched image as foreground instead,
+    ensuring every slide has a visual element.
 
     Args:
         chart_image_paths: Paths to user-uploaded chart images.
         chart_slide_mapping: List of length len(slides), each element is a
             chart index (0-based) or None if no chart for that slide.
+        topic: Topic string for generating image search queries.
+        angle: Angle string for generating image search queries.
 
     Returns:
         Dict with 'video_path'.
@@ -1651,17 +1762,52 @@ def build_video_with_chart_overlays(
     from PIL import Image
 
     fg_w = int(img_w * 0.84)
-    fg_h = int(img_h * 0.35)
+    fg_h = int(img_h * 0.45)  # Taller zone for charts to avoid cropping
 
     # Pre-prepare chart foreground images and close originals immediately
     chart_fg_by_idx = {}
     for ci, path in enumerate(chart_image_paths):
         try:
             img = Image.open(path).convert("RGBA")
-            chart_fg_by_idx[ci] = _prepare_fg_image(img, fg_w, fg_h)
+            chart_fg_by_idx[ci] = _fit_fg_image(img, fg_w, fg_h)
             img.close()
         except Exception:
             pass
+
+    # Step 2b: Fetch web images for slides that don't have a chart
+    non_chart_indices = [
+        i for i in range(len(slides))
+        if (i >= len(chart_slide_mapping) or chart_slide_mapping[i] is None)
+    ]
+    non_chart_fg = {}
+    if non_chart_indices:
+        from src.content.generator import generate_image_search_queries
+        from src.slides.image_search import search_and_download_all_images
+
+        nc_slides = [slides[i] for i in non_chart_indices]
+        nc_queries = generate_image_search_queries(
+            slides=nc_slides, topic=topic, angle=angle,
+        )
+        nc_results = search_and_download_all_images(
+            queries=nc_queries,
+            per_query=3,
+            orientation="portrait" if aspect_ratio == "9:16" else "landscape",
+            target_size=(img_w, img_h),
+        )
+        web_fg_w = int(img_w * 0.84)
+        web_fg_h = int(img_h * 0.35)
+        for idx, (_, images) in zip(non_chart_indices, nc_results):
+            if images:
+                best = images[0]
+                non_chart_fg[idx] = _prepare_fg_image(best, web_fg_w, web_fg_h)
+                best.close()
+                for extra in images[1:]:
+                    extra.close()
+            else:
+                for extra in images:
+                    extra.close()
+        del nc_results
+        gc.collect()
 
     # Step 3: Build slide visuals one at a time, freeing backgrounds as we go
     slide_visuals = []
@@ -1691,20 +1837,25 @@ def build_video_with_chart_overlays(
         fg_list = []
         if chart_idx is not None and chart_idx in chart_fg_by_idx:
             fg_list = [chart_fg_by_idx[chart_idx]]
+        elif i in non_chart_fg:
+            fg_list = [non_chart_fg[i]]
 
         slide_visuals.append(("dynamic", treated_bgs, overlay, fg_list, role, []))
 
     # Free the predet_bgs list reference — slide_visuals now owns the images
     del predet_bgs
     del chart_fg_by_idx
+    non_chart_fg.clear()
     gc.collect()
 
     # Step 4: Synthesize audio, assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
         pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
         whoosh_sfx_path = os.path.join(tmp_dir, "sfx_whoosh.wav")
+        reveal_sfx_path = os.path.join(tmp_dir, "sfx_reveal.wav")
         _generate_pop_sfx(pop_sfx_path)
         _generate_whoosh_sfx(whoosh_sfx_path)
+        _generate_reveal_sfx(reveal_sfx_path)
 
         slide_clips = []
 
@@ -1767,6 +1918,18 @@ def build_video_with_chart_overlays(
             if pre_roll > 0:
                 vo_clip = vo_clip.with_start(pre_roll)
             audio_parts = [vo_clip]
+
+            # Reveal SFX when foreground image first appears (at slide start)
+            if fg_prepared:
+                reveal_t = pre_roll + 0.05  # Slightly after slide starts
+                sfx = AudioFileClip(reveal_sfx_path).with_start(reveal_t)
+                audio_parts.append(sfx)
+
+            # Whoosh on foreground image transitions
+            for ft in (fg_change_times or []):
+                if ft < duration - 0.3:
+                    sfx = AudioFileClip(reveal_sfx_path).with_start(ft)
+                    audio_parts.append(sfx)
 
             for bt in (bg_change_times or []):
                 if bt < duration - 0.3:
