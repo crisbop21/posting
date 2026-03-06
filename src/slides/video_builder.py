@@ -1985,7 +1985,7 @@ def build_video_with_chart_overlays(
 
         fg_list = []
         if chart_idx is not None and chart_idx in chart_fg_by_idx:
-            fg_list = [chart_fg_by_idx[chart_idx]]
+            fg_list = [chart_fg_by_idx[chart_idx].copy()]
         elif i in non_chart_fg:
             fg_list = [non_chart_fg[i]]
 
