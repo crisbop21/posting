@@ -2165,9 +2165,4 @@ def build_video_with_chart_overlays(
         del slide_clips, final_video
         gc.collect()
 
-    # Close chart images
-    for img in chart_pil_images:
-        if img is not None:
-            img.close()
-
     return {"video_path": output_path}
