@@ -42,6 +42,8 @@ from src.content.generator import (
     generate_video_script,
     generate_image_search_queries,
     generate_overlay_prompts,
+    analyze_charts,
+    map_charts_to_slides,
     OVERLAY_STYLE_DESCRIPTIONS,
 )
 from src.content.reviewer import review_and_improve
@@ -50,6 +52,7 @@ from src.slides.png_builder import build_pngs
 from src.slides.png_builder import build_style_alternatives
 from src.slides.video_builder import (
     build_video_with_searched_images,
+    build_video_with_chart_overlays,
 )
 from src.slides.image_generator import (
     generate_slide_images,
@@ -501,6 +504,9 @@ for key, default in {
     "ai_overlay_prompts": [],
     "overlay_style": "auto",
     "overlays_enabled": False,
+    "chart_image_paths": [],
+    "chart_analyses": [],
+    "chart_slide_mapping": [],
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -604,6 +610,8 @@ if st.session_state.step == 1:
                         st.session_state.verified_bullets = rec.get("verified_bullets", [])
                         st.session_state.angle = rec.get("angle", "")
                         st.session_state.user_facts = rec.get("user_facts", "")
+                        st.session_state.chart_image_paths = rec.get("chart_image_paths", [])
+                        st.session_state.chart_analyses = rec.get("chart_analyses", [])
                         # Jump to the furthest meaningful step
                         if rec.get("verified_bullets"):
                             st.session_state.step = 3
@@ -621,12 +629,32 @@ if st.session_state.step == 1:
 
     research_mode = st.radio(
         "How do you want to find a topic?",
-        ["Latest News", "Custom Topic"],
+        ["Latest News", "Custom Topic", "Chart Analysis"],
         horizontal=True,
-        help="Choose 'Latest News' to research trending stories, or 'Custom Topic' to provide your own subject.",
+        help="Choose 'Latest News' to research trending stories, 'Custom Topic' to provide your own subject, or 'Chart Analysis' to upload charts for AI interpretation.",
     )
 
-    if research_mode == "Custom Topic":
+    if research_mode == "Chart Analysis":
+        st.write("Upload one or more chart images. Claude will analyze them, extract data, and suggest topics.")
+        uploaded_charts = st.file_uploader(
+            "Upload chart images",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+            help="Upload screenshots or exported charts (PNG, JPG, WEBP). Multiple files supported.",
+        )
+        chart_context = st.text_input(
+            "Context (optional)",
+            placeholder="e.g. These are Tesla stock charts from Q4 2025",
+            help="Help Claude understand what the charts are about.",
+        )
+        research_btn = st.button(
+            "Analyze Charts",
+            type="primary",
+            use_container_width=True,
+            disabled=not uploaded_charts,
+        )
+        custom_topic = ""
+    elif research_mode == "Custom Topic":
         st.write("Enter a topic and we'll research it across news sources, then suggest 10 angles.")
         custom_topic = st.text_input(
             "Topic to research",
@@ -638,9 +666,11 @@ if st.session_state.step == 1:
             use_container_width=True,
             disabled=not custom_topic,
         )
+        uploaded_charts = None
     else:
         st.write("We'll research the latest trends and suggest 10 topics for your slide deck.")
         custom_topic = ""
+        uploaded_charts = None
         research_btn = st.button("Research Topics", type="primary", use_container_width=True)
 
     if research_btn:
@@ -660,102 +690,166 @@ if st.session_state.step == 1:
 
         _require_api_key()
 
-        with st.spinner(
-            f"Researching '{custom_topic}'..."
-            if custom_topic
-            else "Fetching latest trends (last 48 hours only)..."
-        ):
-            research_parts = []
+        # ── Chart Analysis Mode ──────────────────────────────────────
+        if research_mode == "Chart Analysis" and uploaded_charts:
+            chart_bytes_list = [f.read() for f in uploaded_charts]
 
-            if custom_topic:
-                custom_news = fetch_news_topics([custom_topic], max_per_topic=10)
-                if custom_news:
-                    st.toast(f"Found {len(custom_news)} articles about '{custom_topic}'")
-                    research_parts.append(format_news_for_prompt(custom_news))
+            with st.spinner(f"Analyzing {len(chart_bytes_list)} chart(s) with Claude..."):
+                chart_result = analyze_charts(chart_bytes_list, context=chart_context or "")
+                research_text = chart_result["research_text"]
+                research_facts = chart_result["research_facts"]
+                chart_analyses = chart_result["chart_analyses"]
 
-                web_results = search_claim(custom_topic + " finance", max_results=10)
-                if web_results:
-                    lines = [f"=== Web Search: {custom_topic} ===\n"]
-                    for idx, r in enumerate(web_results, 1):
-                        lines.append(f"{idx}. [{r['source']}] {r['title']}")
-                        if r["summary"]:
-                            lines.append(f"   {r['summary'][:200]}")
-                        lines.append(f"   Published: {r['published']}")
-                        lines.append("")
-                    research_parts.append("\n".join(lines))
-                    st.toast(f"Found {len(web_results)} additional web results")
+                st.session_state.research_text = research_text
+                st.session_state.research_facts = research_facts
+                st.session_state.chart_analyses = chart_analyses
 
-                if not research_parts:
-                    st.error(f"No results found for '{custom_topic}'. Try a different query.")
-                    st.stop()
-            else:
-                if "news" in sources:
-                    news_items = fetch_news_topics(topics)
-                    if news_items:
-                        st.toast(f"Found {len(news_items)} recent articles, fact checking...")
+                st.toast(f"Extracted {len(research_facts)} facts from {len(chart_analyses)} chart(s)")
 
-                        raw_news = format_news_for_prompt(news_items)
-                        try:
-                            verdicts = fact_check_news(raw_news)
-                            corrections = {
-                                v["index"]: v for v in verdicts
-                                if v.get("status") == "corrected"
-                            }
-                            for v_idx, verdict in corrections.items():
-                                if 1 <= v_idx <= len(news_items):
-                                    item = news_items[v_idx - 1]
-                                    item.title = verdict.get("corrected_title", item.title)
-                                    item.summary = verdict.get("corrected_summary", item.summary)
+            # Save chart images to disk for later use in video
+            chart_dir = os.path.join("saved_topics", "charts")
+            os.makedirs(chart_dir, exist_ok=True)
+            import hashlib
+            chart_paths = []
+            for i, img_bytes in enumerate(chart_bytes_list):
+                ext = uploaded_charts[i].name.rsplit(".", 1)[-1] if "." in uploaded_charts[i].name else "png"
+                h = hashlib.sha256(img_bytes).hexdigest()[:12]
+                chart_path = os.path.join(chart_dir, f"chart_{h}.{ext}")
+                with open(chart_path, "wb") as fp:
+                    fp.write(img_bytes)
+                chart_paths.append(chart_path)
+            st.session_state.chart_image_paths = chart_paths
 
-                            if corrections:
-                                st.toast(
-                                    f"Corrected {len(corrections)} article(s), "
-                                    f"all {len(news_items)} now factual"
-                                )
-                            else:
-                                st.toast(f"All {len(news_items)} articles verified")
-                        except Exception:
-                            st.toast("Fact check unavailable, using articles as is")
+            # Additional web verification of chart-derived facts
+            with st.spinner("Verifying chart data with web search..."):
+                # Use the combined narrative as a search query
+                verify_query = " ".join(
+                    c.get("subject", "") for c in chart_analyses
+                )[:100]
+                if verify_query.strip():
+                    web_results = search_claim(verify_query + " finance", max_results=5)
+                    if web_results:
+                        lines = ["\n=== Web Verification ===\n"]
+                        for idx, r in enumerate(web_results, 1):
+                            lines.append(f"{idx}. [{r['source']}] {r['title']}")
+                            if r["summary"]:
+                                lines.append(f"   {r['summary'][:200]}")
+                        research_text += "\n".join(lines)
+                        st.session_state.research_text = research_text
+                        st.toast(f"Found {len(web_results)} verification sources")
 
-                        research_parts.append(format_news_for_prompt(news_items))
-                    else:
-                        st.toast("No news articles found in the last 48 hours")
-
-                if "reddit" in sources:
-                    reddit_posts = fetch_reddit_topics(subreddits)
-                    research_parts.append(format_reddit_for_prompt(reddit_posts))
-                    st.toast(f"Found {len(reddit_posts)} Reddit posts")
-
-            research_text = "\n\n".join(research_parts)
-            empty_markers = {"No news articles found.", "No Reddit posts found."}
-
-            if not research_parts or all(p.strip() in empty_markers for p in research_parts):
-                st.error("No research data found. Check your network connection and config.")
+            # Suggest topics based on chart analysis
+            try:
+                with st.spinner("Generating topic suggestions from charts..."):
+                    topic_options = suggest_topics(research_text, audience)
+                    st.session_state.topic_options = topic_options
+            except anthropic.AuthenticationError:
+                st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+                st.stop()
+            except anthropic.APIError as exc:
+                st.error(f"API error: {exc}")
                 st.stop()
 
-            st.session_state.research_text = research_text
+            st.rerun()
 
-        try:
-            with st.spinner("Extracting structured facts from research..."):
-                research_facts = extract_news_facts(research_text)
-                st.session_state.research_facts = research_facts
-                st.toast(f"Extracted {len(research_facts)} verifiable facts")
-        except Exception:
-            st.toast("Facts extraction unavailable, continuing without grounding")
-            st.session_state.research_facts = []
+        # ── News / Custom Topic Mode ─────────────────────────────────
+        elif research_mode in ("Latest News", "Custom Topic"):
+            with st.spinner(
+                f"Researching '{custom_topic}'..."
+                if custom_topic
+                else "Fetching latest trends (last 48 hours only)..."
+            ):
+                research_parts = []
 
-        try:
-            with st.spinner("Generating topic suggestions..."):
-                topic_options = suggest_topics(research_text, audience)
-                st.session_state.topic_options = topic_options
-        except anthropic.AuthenticationError:
-            st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
-            st.stop()
-        except anthropic.APIError as exc:
-            st.error(f"API error: {exc}")
-            st.stop()
+                if custom_topic:
+                    custom_news = fetch_news_topics([custom_topic], max_per_topic=10)
+                    if custom_news:
+                        st.toast(f"Found {len(custom_news)} articles about '{custom_topic}'")
+                        research_parts.append(format_news_for_prompt(custom_news))
 
-        st.rerun()
+                    web_results = search_claim(custom_topic + " finance", max_results=10)
+                    if web_results:
+                        lines = [f"=== Web Search: {custom_topic} ===\n"]
+                        for idx, r in enumerate(web_results, 1):
+                            lines.append(f"{idx}. [{r['source']}] {r['title']}")
+                            if r["summary"]:
+                                lines.append(f"   {r['summary'][:200]}")
+                            lines.append(f"   Published: {r['published']}")
+                            lines.append("")
+                        research_parts.append("\n".join(lines))
+                        st.toast(f"Found {len(web_results)} additional web results")
+
+                    if not research_parts:
+                        st.error(f"No results found for '{custom_topic}'. Try a different query.")
+                        st.stop()
+                else:
+                    if "news" in sources:
+                        news_items = fetch_news_topics(topics)
+                        if news_items:
+                            st.toast(f"Found {len(news_items)} recent articles, fact checking...")
+
+                            raw_news = format_news_for_prompt(news_items)
+                            try:
+                                verdicts = fact_check_news(raw_news)
+                                corrections = {
+                                    v["index"]: v for v in verdicts
+                                    if v.get("status") == "corrected"
+                                }
+                                for v_idx, verdict in corrections.items():
+                                    if 1 <= v_idx <= len(news_items):
+                                        item = news_items[v_idx - 1]
+                                        item.title = verdict.get("corrected_title", item.title)
+                                        item.summary = verdict.get("corrected_summary", item.summary)
+
+                                if corrections:
+                                    st.toast(
+                                        f"Corrected {len(corrections)} article(s), "
+                                        f"all {len(news_items)} now factual"
+                                    )
+                                else:
+                                    st.toast(f"All {len(news_items)} articles verified")
+                            except Exception:
+                                st.toast("Fact check unavailable, using articles as is")
+
+                            research_parts.append(format_news_for_prompt(news_items))
+                        else:
+                            st.toast("No news articles found in the last 48 hours")
+
+                    if "reddit" in sources:
+                        reddit_posts = fetch_reddit_topics(subreddits)
+                        research_parts.append(format_reddit_for_prompt(reddit_posts))
+                        st.toast(f"Found {len(reddit_posts)} Reddit posts")
+
+                research_text = "\n\n".join(research_parts)
+                empty_markers = {"No news articles found.", "No Reddit posts found."}
+
+                if not research_parts or all(p.strip() in empty_markers for p in research_parts):
+                    st.error("No research data found. Check your network connection and config.")
+                    st.stop()
+
+                st.session_state.research_text = research_text
+
+            try:
+                with st.spinner("Extracting structured facts from research..."):
+                    research_facts = extract_news_facts(research_text)
+                    st.session_state.research_facts = research_facts
+                    st.toast(f"Extracted {len(research_facts)} verifiable facts")
+            except Exception:
+                st.toast("Facts extraction unavailable, continuing without grounding")
+                st.session_state.research_facts = []
+
+            try:
+                with st.spinner("Generating topic suggestions..."):
+                    topic_options = suggest_topics(research_text, audience)
+                    st.session_state.topic_options = topic_options
+            except anthropic.AuthenticationError:
+                st.error("Invalid API key. Please check your Anthropic API key in the sidebar.")
+                st.stop()
+            except anthropic.APIError as exc:
+                st.error(f"API error: {exc}")
+                st.stop()
+
+            st.rerun()
 
     # ── Card-based topic selection ──────────────────────────────────────────
     if st.session_state.topic_options:
@@ -778,6 +872,8 @@ if st.session_state.step == 1:
                         t,
                         research_text=st.session_state.research_text,
                         research_facts=st.session_state.research_facts,
+                        chart_image_paths=st.session_state.chart_image_paths or None,
+                        chart_analyses=st.session_state.chart_analyses or None,
                     )
                     st.session_state.topic_id = tid
                     st.session_state.step = 2
@@ -1867,7 +1963,13 @@ elif st.session_state.step == 6:
                 "Each slide is read aloud with a natural script generated by Claude."
             )
 
-            if ai_images_enabled:
+            if st.session_state.get("chart_image_paths"):
+                n_charts = len(st.session_state.chart_image_paths)
+                st.caption(
+                    f"Chart Analysis mode: {n_charts} chart(s) will be used as overlays "
+                    "on relevant slides with predetermined Ken Burns backgrounds (no image API needed)."
+                )
+            elif ai_images_enabled:
                 ai_provider = "Gemini Flash" if google_ai_key else "DALL-E 3"
                 st.caption(
                     f"Slides use AI-generated cinematic realistic backgrounds ({ai_provider})."
@@ -1947,9 +2049,15 @@ elif st.session_state.step == 6:
                     # Save edits back to session state
                     st.session_state.video_scripts = edited_scripts
 
-                    # Use AI-generated images when an image API key is available
+                    # Determine video build mode
                     use_ai = ai_images_enabled
-                    spinner_msg = "Generating AI images and building video..." if use_ai else "Searching for images and building video..."
+                    has_charts = bool(st.session_state.get("chart_image_paths"))
+                    if has_charts:
+                        spinner_msg = "Building video with chart overlays..."
+                    elif use_ai:
+                        spinner_msg = "Generating AI images and building video..."
+                    else:
+                        spinner_msg = "Searching for images and building video..."
 
                     video_success = False
                     with st.spinner(spinner_msg):
@@ -2003,7 +2111,36 @@ elif st.session_state.step == 6:
                                     st.warning(f"Overlay generation failed (proceeding without): {exc}")
                                     cinematic_overlay_images = None
 
-                            if use_ai:
+                            # Check if chart images are available
+                            _chart_paths = st.session_state.get("chart_image_paths", [])
+                            _chart_analyses = st.session_state.get("chart_analyses", [])
+
+                            if _chart_paths:
+                                # Chart Analysis mode: predetermined backgrounds + chart overlays
+                                # Map charts to slides
+                                if not st.session_state.get("chart_slide_mapping"):
+                                    chart_mapping = map_charts_to_slides(
+                                        slides=live_slides,
+                                        chart_analyses=_chart_analyses,
+                                        num_charts=len(_chart_paths),
+                                    )
+                                    st.session_state.chart_slide_mapping = chart_mapping
+                                else:
+                                    chart_mapping = st.session_state.chart_slide_mapping
+
+                                web_result = build_video_with_chart_overlays(
+                                    slides=live_slides,
+                                    scripts=edited_scripts,
+                                    chart_image_paths=_chart_paths,
+                                    chart_slide_mapping=chart_mapping,
+                                    colors=colors,
+                                    aspect_ratio=aspect_ratio_val,
+                                    output_dir="./output",
+                                    handle=handle,
+                                    voice_id=elevenlabs_voice,
+                                )
+                                st.session_state.video_search_queries = []
+                            elif use_ai:
                                 # Generate proper AI image prompts (Cinematic realistic)
                                 image_prompts = generate_image_prompts(
                                     slides=live_slides, topic=_topic, angle=_angle,
@@ -2040,7 +2177,7 @@ elif st.session_state.step == 6:
                                 st.session_state.video_search_queries = search_queries
 
                             st.session_state.video_path = web_result["video_path"]
-                            st.session_state.video_search_results = web_result["search_results"]
+                            st.session_state.video_search_results = web_result.get("search_results", {})
                             st.session_state.video_build_error = None
                             video_success = True
 

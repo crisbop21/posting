@@ -251,6 +251,221 @@ Return ONLY the JSON array, no other text."""
     return _parse_json(text)
 
 
+def analyze_charts(chart_images: list[bytes], context: str = "") -> dict:
+    """Analyze uploaded chart images using Claude's vision capability.
+
+    Sends each chart image to Claude for interpretation, extracting:
+    - Chart type, subject, time period
+    - Key data points, trends, and takeaways
+    - Notable patterns (breakouts, divergences, support/resistance)
+
+    Args:
+        chart_images: List of image bytes (PNG/JPG/WEBP).
+        context: Optional user-provided context about the charts.
+
+    Returns:
+        Dict with:
+            - "research_text": Combined narrative analysis of all charts
+            - "research_facts": List of extracted fact dicts
+            - "chart_analyses": Per-chart analysis list
+    """
+    import base64
+
+    content_blocks = []
+
+    if context:
+        content_blocks.append({
+            "type": "text",
+            "text": f"User context about these charts: {context}\n\n",
+        })
+
+    content_blocks.append({
+        "type": "text",
+        "text": (
+            "You are a financial analyst. Analyze the following chart image(s) in detail.\n\n"
+            "For EACH chart, extract:\n"
+            "1. Chart type (line, bar, candlestick, pie, area, etc.)\n"
+            "2. Subject/title — what is being measured\n"
+            "3. Time period covered\n"
+            "4. Key data points (specific numbers, peaks, troughs)\n"
+            "5. Trends and patterns (uptrend, downtrend, consolidation, breakout)\n"
+            "6. Notable observations (support/resistance levels, divergences, anomalies)\n"
+            "7. Key takeaways — what story does this chart tell?\n\n"
+            "Be specific with numbers. If you can read values from axes, include them.\n"
+            "If you cannot read exact values, describe the approximate range.\n\n"
+        ),
+    })
+
+    for i, img_bytes in enumerate(chart_images):
+        # Detect media type from header bytes
+        if img_bytes[:8].startswith(b'\x89PNG'):
+            media_type = "image/png"
+        elif img_bytes[:2] == b'\xff\xd8':
+            media_type = "image/jpeg"
+        elif img_bytes[:4] == b'RIFF':
+            media_type = "image/webp"
+        else:
+            media_type = "image/png"  # fallback
+
+        content_blocks.append({
+            "type": "text",
+            "text": f"\n--- Chart {i + 1} of {len(chart_images)} ---\n",
+        })
+        content_blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64.b64encode(img_bytes).decode(),
+            },
+        })
+
+    content_blocks.append({
+        "type": "text",
+        "text": (
+            "\n\nNow provide your complete analysis. Return a JSON object:\n"
+            "{\n"
+            '  "charts": [\n'
+            "    {\n"
+            '      "chart_number": 1,\n'
+            '      "chart_type": "line chart",\n'
+            '      "subject": "S&P 500 performance",\n'
+            '      "time_period": "Jan 2024 - Dec 2024",\n'
+            '      "key_data_points": ["Started at 4,770", "Peaked at 5,880 in July", "Ended at 5,400"],\n'
+            '      "trends": ["Strong uptrend Jan-Jul", "Correction Aug-Sep", "Recovery Oct-Dec"],\n'
+            '      "notable_patterns": ["Double top at 5,880", "Support at 5,100"],\n'
+            '      "takeaways": "S&P 500 gained ~13% in 2024 despite mid-year correction"\n'
+            "    }\n"
+            "  ],\n"
+            '  "combined_narrative": "A paragraph summarizing all charts together and the overall story they tell",\n'
+            '  "facts": [\n'
+            "    {\n"
+            '      "fact": "S&P 500 gained approximately 13% in 2024",\n'
+            '      "type": "number",\n'
+            '      "value": "13%",\n'
+            '      "source": "chart analysis",\n'
+            '      "confidence": "medium"\n'
+            "    }\n"
+            "  ]\n"
+            "}\n\n"
+            "Extract at least 5 facts per chart. Mark confidence as 'medium' since "
+            "values are read from charts (not primary sources).\n"
+            "Return ONLY the JSON object, no other text."
+        ),
+    })
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=8192,
+        messages=[{"role": "user", "content": content_blocks}],
+    )
+
+    text = _extract_text(response)
+    parsed = _parse_json(text)
+
+    # Build research_text from the analysis
+    research_parts = []
+    if isinstance(parsed, dict):
+        charts = parsed.get("charts", [])
+        narrative = parsed.get("combined_narrative", "")
+        facts = parsed.get("facts", [])
+
+        for chart in charts:
+            part = f"=== Chart: {chart.get('subject', 'Unknown')} ({chart.get('chart_type', 'chart')}) ===\n"
+            part += f"Time period: {chart.get('time_period', 'Unknown')}\n"
+            for dp in chart.get("key_data_points", []):
+                part += f"  - {dp}\n"
+            for trend in chart.get("trends", []):
+                part += f"  Trend: {trend}\n"
+            for pattern in chart.get("notable_patterns", []):
+                part += f"  Pattern: {pattern}\n"
+            part += f"  Takeaway: {chart.get('takeaways', '')}\n"
+            research_parts.append(part)
+
+        if narrative:
+            research_parts.append(f"\nOverall: {narrative}")
+
+        return {
+            "research_text": "\n\n".join(research_parts),
+            "research_facts": facts if isinstance(facts, list) else [],
+            "chart_analyses": charts if isinstance(charts, list) else [],
+        }
+
+    # Fallback if parsing didn't return expected structure
+    return {
+        "research_text": text,
+        "research_facts": [],
+        "chart_analyses": [],
+    }
+
+
+def map_charts_to_slides(
+    slides: list[dict],
+    chart_analyses: list[dict],
+    num_charts: int,
+) -> list[int | None]:
+    """Map chart images to the most relevant slides using Claude.
+
+    Args:
+        slides: List of slide dicts (title, body, footer).
+        chart_analyses: Per-chart analysis from analyze_charts().
+        num_charts: Total number of chart images available.
+
+    Returns:
+        List of length len(slides), where each element is a chart index (0-based)
+        or None if no chart is relevant for that slide.
+    """
+    slides_desc = []
+    for i, s in enumerate(slides):
+        slides_desc.append(f"Slide {i + 1}: {s.get('title', '')} — {s.get('body', '')}")
+
+    charts_desc = []
+    for i, c in enumerate(chart_analyses):
+        charts_desc.append(
+            f"Chart {i + 1}: {c.get('subject', 'Unknown')} "
+            f"({c.get('chart_type', 'chart')}) — {c.get('takeaways', '')}"
+        )
+
+    prompt = f"""You have {num_charts} chart image(s) and {len(slides)} slides.
+Assign each chart to the slide(s) where it is most relevant as a visual overlay.
+A chart can be used on multiple slides if relevant. Not every slide needs a chart.
+Hook slides (slide 1) and CTA slides (last slide) typically should NOT have charts.
+
+CHARTS:
+{chr(10).join(charts_desc)}
+
+SLIDES:
+{chr(10).join(slides_desc)}
+
+Return a JSON array of length {len(slides)}, where each element is either:
+- A chart number (1-based) if a chart is relevant for that slide
+- null if no chart should be shown on that slide
+
+Example for 6 slides with 2 charts: [null, 1, 1, 2, 2, null]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    mapping = _parse_json(text)
+
+    if isinstance(mapping, list) and len(mapping) == len(slides):
+        # Convert 1-based to 0-based, keep None as None
+        return [
+            (m - 1) if isinstance(m, (int, float)) and m is not None and 1 <= m <= num_charts
+            else None
+            for m in mapping
+        ]
+
+    # Fallback: no mapping
+    return [None] * len(slides)
+
+
 def extract_news_facts(research_text: str) -> list[dict]:
     """Pull structured facts (numbers, events, dates, sources) from research text.
 
