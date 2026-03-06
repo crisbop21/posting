@@ -1733,7 +1733,18 @@ def _parse_json(text: str):
     match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     if match:
         text = match.group(1).strip()
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # Fix common LLM JSON issues: trailing commas before } or ]
+        cleaned = re.sub(r",\s*([}\]])", r"\1", text)
+        # Fix unescaped newlines inside JSON string values
+        cleaned = re.sub(
+            r'(?<=": ")(.*?)(?=")',
+            lambda m: m.group(0).replace("\n", "\\n"),
+            cleaned,
+        )
+        return json.loads(cleaned)
 
 
 def extract_entity_mentions(
