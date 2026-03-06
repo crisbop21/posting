@@ -1933,8 +1933,9 @@ def build_video_with_chart_overlays(
         from src.slides.image_search import search_and_download_all_images
 
         nc_slides = [slides[i] for i in non_chart_indices]
+        nc_scripts = [scripts[i] for i in non_chart_indices]
         nc_queries = generate_image_search_queries(
-            slides=nc_slides, topic=topic, angle=angle,
+            slides=nc_slides, scripts=nc_scripts, topic=topic, angle=angle,
         )
         nc_results = search_and_download_all_images(
             queries=nc_queries,
