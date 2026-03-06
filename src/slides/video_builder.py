@@ -746,10 +746,14 @@ def _make_dynamic_slide_clip(
         overlay_change_times = []
 
     # Foreground images — store as uint8 RGBA
+    # Accept both PIL Images and pre-converted numpy arrays.
     fg_arrays = []
     for fg_img in fg_images:
-        fg_arr = np.array(fg_img.convert("RGBA"))  # uint8
-        fg_arrays.append(fg_arr)
+        if isinstance(fg_img, np.ndarray):
+            fg_arrays.append(fg_img)
+        else:
+            fg_arr = np.array(fg_img.convert("RGBA"))  # uint8
+            fg_arrays.append(fg_arr)
 
     # Entity overlays — pre-processed list of (array, start, end) tuples
     ent_items = []
@@ -1959,6 +1963,7 @@ def build_video_with_chart_overlays(
         gc.collect()
 
     # Step 3: Build slide visuals one at a time, freeing backgrounds as we go
+    import numpy as np
     slide_visuals = []
     for i, slide in enumerate(slides):
         role = get_slide_role(i, len(slides))
@@ -1985,9 +1990,13 @@ def build_video_with_chart_overlays(
 
         fg_list = []
         if chart_idx is not None and chart_idx in chart_fg_by_idx:
-            fg_list = [chart_fg_by_idx[chart_idx].copy()]
+            fg_img = chart_fg_by_idx[chart_idx].copy()
+            fg_list = [np.array(fg_img.convert("RGBA"))]
+            fg_img.close()
         elif i in non_chart_fg:
-            fg_list = [non_chart_fg[i]]
+            fg_img = non_chart_fg[i]
+            fg_list = [np.array(fg_img.convert("RGBA"))]
+            fg_img.close()
 
         slide_visuals.append(("dynamic", treated_bgs, overlay, fg_list, role, []))
 
@@ -2090,12 +2099,10 @@ def build_video_with_chart_overlays(
                 entity_overlays=ent_overlays,
             )
 
-            # Free PIL images
+            # Free PIL images (fg_prepared are already numpy arrays)
             for bg in treated_bgs:
                 bg.close()
             overlay.close()
-            for fg in fg_prepared:
-                fg.close()
 
             # Build audio
             if pre_roll > 0:
