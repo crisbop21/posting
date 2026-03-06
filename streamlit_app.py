@@ -42,18 +42,25 @@ from src.content.generator import (
     generate_video_script,
     generate_image_search_queries,
     generate_overlay_prompts,
-    analyze_charts,
-    map_charts_to_slides,
     OVERLAY_STYLE_DESCRIPTIONS,
 )
+
+# Chart Analysis functions — imported separately to isolate errors
+try:
+    from src.content.generator import analyze_charts, map_charts_to_slides
+except ImportError:
+    analyze_charts = None  # type: ignore[assignment]
+    map_charts_to_slides = None  # type: ignore[assignment]
 from src.content.reviewer import review_and_improve
 from src.slides.pptx_builder import build_pptx
 from src.slides.png_builder import build_pngs
 from src.slides.png_builder import build_style_alternatives
-from src.slides.video_builder import (
-    build_video_with_searched_images,
-    build_video_with_chart_overlays,
-)
+from src.slides.video_builder import build_video_with_searched_images
+
+try:
+    from src.slides.video_builder import build_video_with_chart_overlays
+except ImportError:
+    build_video_with_chart_overlays = None  # type: ignore[assignment]
 from src.slides.image_generator import (
     generate_slide_images,
     generate_ai_overlay,
