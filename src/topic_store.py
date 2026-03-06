@@ -37,6 +37,8 @@ def save_topic(
     research_facts: list[dict] | None = None,
     angle: str = "",
     user_facts: str = "",
+    chart_image_paths: list[str] | None = None,
+    chart_analyses: list[dict] | None = None,
 ) -> str:
     """Save (or update) a topic with its associated data.  Returns the topic id."""
     _ensure_dir()
@@ -59,6 +61,8 @@ def save_topic(
         "research_facts": research_facts if research_facts is not None else existing.get("research_facts", []),
         "angle": angle or existing.get("angle", ""),
         "user_facts": user_facts or existing.get("user_facts", ""),
+        "chart_image_paths": chart_image_paths if chart_image_paths is not None else existing.get("chart_image_paths", []),
+        "chart_analyses": chart_analyses if chart_analyses is not None else existing.get("chart_analyses", []),
         "updated_at": time.time(),
         "created_at": existing.get("created_at", time.time()),
     }

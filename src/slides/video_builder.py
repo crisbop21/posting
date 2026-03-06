@@ -958,6 +958,60 @@ def build_video_with_ai_images(
     return output_path
 
 
+# ── Predetermined Ken Burns Backgrounds ──────────────────────────────────────
+
+
+def generate_predetermined_backgrounds(
+    num_slides: int,
+    target_w: int = 1080,
+    target_h: int = 1920,
+    accent_hex: str = "#F7B731",
+    bg_hex: str = "#0D1117",
+    bgs_per_slide: int = 2,
+) -> list[list]:
+    """Generate predetermined Ken Burns backgrounds using built-in painters.
+
+    No API calls needed — uses the algorithmic background painters from
+    png_builder (candlestick charts, editorial lines, geometric patterns).
+
+    Args:
+        num_slides: Number of slides to generate backgrounds for.
+        target_w, target_h: Output frame dimensions.
+        accent_hex, bg_hex: Color scheme.
+        bgs_per_slide: Number of background variants per slide for rotation.
+
+    Returns:
+        List of lists, each containing PIL Images (oversized for Ken Burns).
+    """
+    from PIL import Image, ImageFilter
+    from src.slides.png_builder import _hex_to_tuple, _BG_PAINTERS
+
+    accent = _hex_to_tuple(accent_hex)
+    bg_color = _hex_to_tuple(bg_hex)
+
+    painter_names = list(_BG_PAINTERS.keys())
+    bg_scale = 1.20
+    scaled_w = int(target_w * bg_scale)
+    scaled_h = int(target_h * bg_scale)
+
+    all_bgs = []
+    for slide_idx in range(num_slides):
+        slide_bgs = []
+        for bg_idx in range(bgs_per_slide):
+            img = Image.new("RGB", (scaled_w, scaled_h), bg_color)
+            # Cycle through painters and use different seeds
+            painter_name = painter_names[(slide_idx + bg_idx) % len(painter_names)]
+            painter = _BG_PAINTERS[painter_name]
+            seed = slide_idx * 1000 + bg_idx * 100 + 42
+            painter(img, bg_color, accent, seed)
+            # Apply blur for Ken Burns readability
+            img = img.filter(ImageFilter.GaussianBlur(radius=18))
+            slide_bgs.append(img)
+        all_bgs.append(slide_bgs)
+
+    return all_bgs
+
+
 # ── Dynamic Video Builder (Ken Burns + Rotating BG + Overlay Cards + SFX) ────
 
 
@@ -1499,3 +1553,237 @@ def build_video_from_slides(
         result["video_path"] = video_path
 
     return result
+
+
+def build_video_with_chart_overlays(
+    slides: list[dict],
+    scripts: list[str],
+    chart_image_paths: list[str],
+    chart_slide_mapping: list[int | None],
+    colors: dict,
+    aspect_ratio: str = "9:16",
+    output_dir: str = "./output",
+    handle: str = "@cristian.bojaca",
+    voice_id: str = "pNInz6obpgDQGcFmaJgB",
+    crossfade: float = 0.3,
+    min_duration: float = 4.0,
+    padding: float = 0.8,
+    caption_safe_pct: float = 0.27,
+) -> dict:
+    """Build a narrated MP4 using predetermined backgrounds + chart image overlays.
+
+    Uses algorithmic Ken Burns backgrounds (no API calls) and composites
+    user-provided chart images as foreground overlays on relevant slides.
+
+    Args:
+        chart_image_paths: Paths to user-uploaded chart images.
+        chart_slide_mapping: List of length len(slides), each element is a
+            chart index (0-based) or None if no chart for that slide.
+
+    Returns:
+        Dict with 'video_path'.
+    """
+    import gc
+
+    _ensure_moviepy()
+    from moviepy import (
+        AudioFileClip,
+        CompositeAudioClip,
+        ImageClip,
+        concatenate_videoclips,
+    )
+    from src.slides.image_generator import (
+        composite_slide_layers,
+        get_slide_role,
+    )
+    from src.slides.png_builder import build_pngs
+
+    if aspect_ratio == "9:16":
+        img_w, img_h = 1080, 1920
+    else:
+        img_w, img_h = 1920, 1080
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    accent_hex = colors.get("accent", "#F7B731")
+    bg_hex = colors.get("background", "#0D1117")
+
+    # Step 1: Generate predetermined backgrounds
+    predet_bgs = generate_predetermined_backgrounds(
+        num_slides=len(slides),
+        target_w=img_w,
+        target_h=img_h,
+        accent_hex=accent_hex,
+        bg_hex=bg_hex,
+        bgs_per_slide=2,
+    )
+
+    # Step 2: Load chart images
+    from PIL import Image
+    chart_pil_images = []
+    for path in chart_image_paths:
+        try:
+            img = Image.open(path).convert("RGBA")
+            chart_pil_images.append(img)
+        except Exception:
+            chart_pil_images.append(None)
+
+    # Step 3: Prepare foreground chart images for each slide
+    fg_w = int(img_w * 0.84)
+    fg_h = int(img_h * 0.35)
+
+    # Build fallback PNGs for slides without charts
+    fallback_pngs = build_pngs(
+        slides=slides,
+        colors=colors,
+        aspect_ratio=aspect_ratio,
+        output_dir=output_dir,
+        handle=handle,
+    )
+
+    slide_visuals = []
+    for i, slide in enumerate(slides):
+        role = get_slide_role(i, len(slides))
+        chart_idx = chart_slide_mapping[i] if i < len(chart_slide_mapping) else None
+        chart_img = None
+        if chart_idx is not None and 0 <= chart_idx < len(chart_pil_images):
+            chart_img = chart_pil_images[chart_idx]
+
+        treated_bgs = predet_bgs[i]
+
+        # Create a dummy small bg for composite_slide_layers
+        dummy_bg = Image.new("RGB", (img_w, img_h), (13, 17, 23))
+
+        _, overlay = composite_slide_layers(
+            bg_image=dummy_bg,
+            slide=slide,
+            slide_index=i,
+            total_slides=len(slides),
+            colors=colors,
+            handle=handle,
+            caption_safe_pct=caption_safe_pct,
+            title_only=True,
+            cinematic_overlay=None,
+            show_counter=False,
+        )
+        dummy_bg.close()
+
+        if chart_img is not None:
+            # Prepare chart as foreground overlay
+            fg_chart = _prepare_fg_image(chart_img, fg_w, fg_h)
+            slide_visuals.append(("dynamic", treated_bgs, overlay, [fg_chart], role, []))
+        else:
+            slide_visuals.append(("dynamic", treated_bgs, overlay, [], role, []))
+
+    # Step 4: Synthesize audio, assemble video
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
+        whoosh_sfx_path = os.path.join(tmp_dir, "sfx_whoosh.wav")
+        _generate_pop_sfx(pop_sfx_path)
+        _generate_whoosh_sfx(whoosh_sfx_path)
+
+        slide_clips = []
+
+        for i, (visual, script) in enumerate(zip(slide_visuals, scripts)):
+            vo_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
+            audio_bytes, char_starts, char_ends = (
+                synthesize_speech_with_timestamps(text=script, voice_id=voice_id)
+            )
+            with open(vo_path, "wb") as f:
+                f.write(audio_bytes)
+            del audio_bytes
+
+            vo_clip = AudioFileClip(vo_path)
+            pre_roll = 0.5 if i == 0 else 0.0
+            duration = max(vo_clip.duration + pre_roll + padding, min_duration)
+
+            _, treated_bgs, overlay, fg_prepared, role = visual[:5]
+            slide_overlays = visual[5] if len(visual) > 5 else []
+            motion = ROLE_MOTION.get(role, "drift")
+
+            # Voice-synced cue times
+            n_fg_transitions = max(0, len(fg_prepared) - 1)
+            fg_change_times, bg_change_times = _extract_visual_cues(
+                script=script,
+                char_starts=char_starts,
+                char_ends=char_ends,
+                duration=duration,
+                n_cards=n_fg_transitions,
+                n_bgs=len(treated_bgs),
+            )
+
+            if pre_roll > 0:
+                if fg_change_times:
+                    fg_change_times = [t + pre_roll for t in fg_change_times]
+                if bg_change_times:
+                    bg_change_times = [t + pre_roll for t in bg_change_times]
+
+            clip = _make_dynamic_slide_clip(
+                treated_bgs=treated_bgs,
+                overlay_rgba=overlay,
+                fg_images=fg_prepared,
+                target_w=img_w,
+                target_h=img_h,
+                duration=duration,
+                base_motion=motion,
+                fg_change_times=fg_change_times,
+                bg_change_times=bg_change_times,
+                caption_safe_pct=caption_safe_pct,
+                cinematic_overlays=slide_overlays,
+            )
+
+            # Free PIL images
+            for bg in treated_bgs:
+                bg.close()
+            overlay.close()
+            for fg in fg_prepared:
+                fg.close()
+
+            # Build audio
+            if pre_roll > 0:
+                vo_clip = vo_clip.with_start(pre_roll)
+            audio_parts = [vo_clip]
+
+            for bt in (bg_change_times or []):
+                if bt < duration - 0.3:
+                    sfx = AudioFileClip(whoosh_sfx_path).with_start(bt)
+                    audio_parts.append(sfx)
+
+            if len(audio_parts) > 1:
+                mixed_audio = CompositeAudioClip(audio_parts)
+            else:
+                mixed_audio = vo_clip
+
+            clip = clip.with_audio(mixed_audio)
+            slide_clips.append(clip)
+            slide_visuals[i] = None
+            gc.collect()
+
+        del slide_visuals
+
+        if crossfade > 0 and len(slide_clips) > 1:
+            final_video = concatenate_videoclips(
+                slide_clips, method="compose", padding=-crossfade,
+            )
+        else:
+            final_video = concatenate_videoclips(slide_clips, method="compose")
+
+        output_path = os.path.join(output_dir, "narrated_chart_slides.mp4")
+        final_video.write_videofile(
+            output_path, fps=24, codec="libx264",
+            audio_codec="aac", logger="bar",
+            ffmpeg_params=["-movflags", "+faststart"],
+        )
+
+        for clip in slide_clips:
+            clip.close()
+        final_video.close()
+        del slide_clips, final_video
+        gc.collect()
+
+    # Close chart images
+    for img in chart_pil_images:
+        if img is not None:
+            img.close()
+
+    return {"video_path": output_path}
