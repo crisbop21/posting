@@ -1624,7 +1624,6 @@ def build_video_with_chart_overlays(
         composite_slide_layers,
         get_slide_role,
     )
-    from src.slides.png_builder import build_pngs
 
     if aspect_ratio == "9:16":
         img_w, img_h = 1080, 1920
@@ -1637,45 +1636,38 @@ def build_video_with_chart_overlays(
     bg_hex = colors.get("background", "#0D1117")
 
     # Step 1: Generate predetermined backgrounds
+    # Use 1 bg per slide instead of 2 to reduce memory — chart mode
+    # already has foreground chart images for visual interest.
     predet_bgs = generate_predetermined_backgrounds(
         num_slides=len(slides),
         target_w=img_w,
         target_h=img_h,
         accent_hex=accent_hex,
         bg_hex=bg_hex,
-        bgs_per_slide=2,
+        bgs_per_slide=1,
     )
 
-    # Step 2: Load chart images
+    # Step 2: Load chart images, prepare foreground overlays, then close originals
     from PIL import Image
-    chart_pil_images = []
-    for path in chart_image_paths:
-        try:
-            img = Image.open(path).convert("RGBA")
-            chart_pil_images.append(img)
-        except Exception:
-            chart_pil_images.append(None)
 
-    # Step 3: Prepare foreground chart images for each slide
     fg_w = int(img_w * 0.84)
     fg_h = int(img_h * 0.35)
 
-    # Build fallback PNGs for slides without charts
-    fallback_pngs = build_pngs(
-        slides=slides,
-        colors=colors,
-        aspect_ratio=aspect_ratio,
-        output_dir=output_dir,
-        handle=handle,
-    )
+    # Pre-prepare chart foreground images and close originals immediately
+    chart_fg_by_idx = {}
+    for ci, path in enumerate(chart_image_paths):
+        try:
+            img = Image.open(path).convert("RGBA")
+            chart_fg_by_idx[ci] = _prepare_fg_image(img, fg_w, fg_h)
+            img.close()
+        except Exception:
+            pass
 
+    # Step 3: Build slide visuals one at a time, freeing backgrounds as we go
     slide_visuals = []
     for i, slide in enumerate(slides):
         role = get_slide_role(i, len(slides))
         chart_idx = chart_slide_mapping[i] if i < len(chart_slide_mapping) else None
-        chart_img = None
-        if chart_idx is not None and 0 <= chart_idx < len(chart_pil_images):
-            chart_img = chart_pil_images[chart_idx]
 
         treated_bgs = predet_bgs[i]
 
@@ -1696,12 +1688,16 @@ def build_video_with_chart_overlays(
         )
         dummy_bg.close()
 
-        if chart_img is not None:
-            # Prepare chart as foreground overlay
-            fg_chart = _prepare_fg_image(chart_img, fg_w, fg_h)
-            slide_visuals.append(("dynamic", treated_bgs, overlay, [fg_chart], role, []))
-        else:
-            slide_visuals.append(("dynamic", treated_bgs, overlay, [], role, []))
+        fg_list = []
+        if chart_idx is not None and chart_idx in chart_fg_by_idx:
+            fg_list = [chart_fg_by_idx[chart_idx]]
+
+        slide_visuals.append(("dynamic", treated_bgs, overlay, fg_list, role, []))
+
+    # Free the predet_bgs list reference — slide_visuals now owns the images
+    del predet_bgs
+    del chart_fg_by_idx
+    gc.collect()
 
     # Step 4: Synthesize audio, assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
