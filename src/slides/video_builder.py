@@ -333,11 +333,14 @@ ROLE_MOTION = {
 SEGMENT_MOTIONS = ["zoom_in", "pan_right", "zoom_out", "pan_left"]
 
 
-def _kenburns_crop(bg_array, src_w, src_h, target_w, target_h, progress, motion):
+def _kenburns_crop(bg_array, src_w, src_h, target_w, target_h, progress, motion,
+                   _out_buf=None, _pil_cache=None):
     """Compute a single Ken Burns cropped frame from an oversized background.
 
     Args:
         progress: 0.0 → 1.0 through the segment, already eased.
+        _out_buf: Optional pre-allocated float32 output buffer to reuse.
+        _pil_cache: Optional dict for caching the reusable PIL Image wrapper.
     Returns:
         numpy array (target_h, target_w, 3), float32.
     """
@@ -378,12 +381,24 @@ def _kenburns_crop(bg_array, src_w, src_h, target_w, target_h, progress, motion)
     crop_w = min(crop_w, src_w - x)
     crop_h = min(crop_h, src_h - y)
 
+    # If crop matches target size exactly, skip the resize entirely
     cropped = bg_array[y:y + crop_h, x:x + crop_w]
-    return np.array(
+    if crop_w == target_w and crop_h == target_h:
+        if _out_buf is not None:
+            np.copyto(_out_buf, cropped, casting='unsafe')
+            return _out_buf
+        return cropped.astype(np.float32)
+
+    # Use PIL resize but write directly into the output buffer
+    resized = np.array(
         Image.fromarray(cropped).resize(
             (target_w, target_h), Image.Resampling.BILINEAR,
         )
-    ).astype(np.float32)
+    )
+    if _out_buf is not None:
+        np.copyto(_out_buf, resized, casting='unsafe')
+        return _out_buf
+    return resized.astype(np.float32)
 
 
 def _make_kenburns_clip(
@@ -403,23 +418,31 @@ def _make_kenburns_clip(
     from moviepy import VideoClip
     from PIL import Image
 
-    bg_array = np.array(treated_bg.convert("RGB"))
+    bg_array = np.array(treated_bg.convert("RGB"))  # uint8
     src_h, src_w = bg_array.shape[:2]
 
-    ov_array = np.array(overlay_rgba.convert("RGBA"))
-    alpha = ov_array[:, :, 3:4].astype(np.float32) / 255.0
-    ov_rgb = ov_array[:, :, :3].astype(np.float32)
+    ov_array = np.array(overlay_rgba.convert("RGBA"))  # uint8
+    ov_alpha_u8 = ov_array[:, :, 3]       # (H, W) uint8
+    ov_rgb_u8 = ov_array[:, :, :3]        # (H, W, 3) uint8
+    ov_mask = ov_alpha_u8 > 0
+
+    _kb_buf = np.empty((target_h, target_w, 3), dtype=np.float32)
 
     def make_frame(t):
         p = t / duration if duration > 0 else 0
         p = 0.5 - 0.5 * math.cos(math.pi * p)
-        bg_frame = _kenburns_crop(
+        frame = _kenburns_crop(
             bg_array, src_w, src_h, target_w, target_h, p, motion,
+            _out_buf=_kb_buf,
         )
-        result = bg_frame * (1.0 - alpha) + ov_rgb * alpha
-        return result.astype(np.uint8)
+        # Only composite where overlay has content
+        if ov_mask.any():
+            a = ov_alpha_u8[ov_mask].astype(np.float32).reshape(-1, 1) * (1.0 / 255.0)
+            rgb = ov_rgb_u8[ov_mask].astype(np.float32)
+            frame[ov_mask] = frame[ov_mask] * (1.0 - a) + rgb * a
+        return frame.astype(np.uint8)
 
-    return VideoClip(make_frame, duration=duration).with_fps(24)
+    return VideoClip(make_frame, duration=duration).with_fps(18)
 
 
 # ── Sound Effects ────────────────────────────────────────────────────────────
@@ -566,21 +589,24 @@ def _make_dynamic_slide_clip(
             if i * bg_interval < duration - 0.5
         ]
 
-    # Pre-compute all numpy arrays
+    # Pre-compute all numpy arrays — keep as uint8 to save memory.
+    # Conversion to float32 happens only in the small regions needed per frame.
     bg_arrays = []
     bg_dims = []
     for bg in treated_bgs:
-        arr = np.array(bg.convert("RGB"))
+        arr = np.array(bg.convert("RGB"))  # uint8
         bg_arrays.append(arr)
         h, w = arr.shape[:2]
         bg_dims.append((w, h))
 
-    # Text overlay
-    ov = np.array(overlay_rgba.convert("RGBA"))
-    text_alpha = ov[:, :, 3:4].astype(np.float32) / 255.0
-    text_rgb = ov[:, :, :3].astype(np.float32)
+    # Text overlay — store alpha as uint8, convert per-frame
+    ov = np.array(overlay_rgba.convert("RGBA"))  # uint8
+    text_alpha_u8 = ov[:, :, 3]   # (H, W) uint8
+    text_rgb_u8 = ov[:, :, :3]    # (H, W, 3) uint8
+    # Pre-compute mask of pixels that actually have text (skip transparent regions)
+    text_mask = text_alpha_u8 > 0
 
-    # Cinematic overlays — pre-compute RGBA arrays
+    # Cinematic overlays — store as uint8 RGBA
     co_arrays = []
     if cinematic_overlays:
         for co_img in cinematic_overlays:
@@ -589,16 +615,19 @@ def _make_dynamic_slide_clip(
                 co = co.resize((target_w, target_h), Image.Resampling.LANCZOS)
             if co.mode != "RGBA":
                 co = co.convert("RGBA")
-            co_arrays.append(np.array(co).astype(np.float32))
+            co_arrays.append(np.array(co))  # uint8
 
     if overlay_change_times is None:
         overlay_change_times = []
 
-    # Foreground images — pre-compute arrays and position
+    # Foreground images — store as uint8 RGBA
     fg_arrays = []
     for fg_img in fg_images:
-        fg_arr = np.array(fg_img.convert("RGBA")).astype(np.float32)
+        fg_arr = np.array(fg_img.convert("RGBA"))  # uint8
         fg_arrays.append(fg_arr)
+
+    # Pre-allocate reusable frame buffer for Ken Burns crops
+    _kb_buf = np.empty((target_h, target_w, 3), dtype=np.float32)
 
     # Foreground image position (centered in 36-73% zone)
     fg_x = int(FG_IMAGE_POS[0] * target_w)
@@ -620,13 +649,12 @@ def _make_dynamic_slide_clip(
             p = 0.5 - 0.5 * math.cos(math.pi * p)
             bg_frame = _kenburns_crop(
                 bg_arrays[0], src_w, src_h, target_w, target_h, p, motions[0],
+                _out_buf=_kb_buf,
             )
         else:
-            # Find current segment from bg_change_times
             seg_idx = sum(1 for bt in bg_change_times if t >= bt)
             seg_idx = min(seg_idx, n_bgs - 1)
 
-            # Segment time boundaries
             seg_start = bg_change_times[seg_idx - 1] if seg_idx > 0 else 0.0
             seg_end = (
                 bg_change_times[seg_idx]
@@ -635,7 +663,6 @@ def _make_dynamic_slide_clip(
             )
             seg_dur = max(seg_end - seg_start, 0.01)
 
-            # Ken Burns progress within segment
             p = (t - seg_start) / seg_dur
             p = max(0.0, min(1.0, p))
             p = 0.5 - 0.5 * math.cos(math.pi * p)
@@ -643,6 +670,7 @@ def _make_dynamic_slide_clip(
             bg_frame = _kenburns_crop(
                 bg_arrays[seg_idx], src_w, src_h,
                 target_w, target_h, p, motions[seg_idx],
+                _out_buf=_kb_buf,
             )
 
             # Crossfade approaching the next change time
@@ -658,19 +686,19 @@ def _make_dynamic_slide_clip(
                     )
                     bg_frame = bg_frame * (1.0 - cf) + bg_next * cf
 
-        frame = bg_frame.copy()
+        # Work directly on bg_frame (avoid .copy() — it's already our buffer
+        # or a freshly computed array from crossfade)
+        frame = bg_frame
 
         # ── 2. CINEMATIC OVERLAY LAYER (sentence-synced transitions) ──
         if n_cos > 0:
-            # Determine which overlay is active based on sentence timing
             co_seg = sum(1 for ot in overlay_change_times if t >= ot)
             co_seg = min(co_seg, n_cos - 1)
 
             cur_co = co_arrays[co_seg]
-            co_a = cur_co[:, :, 3:4] / 255.0
-            co_rgb = cur_co[:, :, :3]
+            co_a = cur_co[:, :, 3:4].astype(np.float32) * (1.0 / 255.0)
+            co_rgb = cur_co[:, :, :3].astype(np.float32)
 
-            # Check for crossfade to next overlay
             co_blend = 0.0
             next_co_seg = co_seg + 1
             if co_seg < len(overlay_change_times) and next_co_seg < n_cos:
@@ -680,9 +708,8 @@ def _make_dynamic_slide_clip(
 
             if co_blend > 0.01 and next_co_seg < n_cos:
                 next_co = co_arrays[next_co_seg]
-                next_a = next_co[:, :, 3:4] / 255.0
-                next_rgb = next_co[:, :, :3]
-                # Blend the two overlays
+                next_a = next_co[:, :, 3:4].astype(np.float32) * (1.0 / 255.0)
+                next_rgb = next_co[:, :, :3].astype(np.float32)
                 blended_a = co_a * (1.0 - co_blend) + next_a * co_blend
                 blended_rgb = co_rgb * (1.0 - co_blend) + next_rgb * co_blend
                 frame = frame * (1.0 - blended_a) + blended_rgb * blended_a
@@ -692,14 +719,12 @@ def _make_dynamic_slide_clip(
         # ── 3. FOREGROUND IMAGE LAYER (always visible, crossfade rotation) ──
         if fg_arrays:
             n_fg = len(fg_arrays)
-            # Determine current and next image from fg_change_times
             seg = sum(1 for ft in fg_change_times if t >= ft)
             seg = min(seg, n_fg - 1)
 
             cur_fg = fg_arrays[seg]
             ch, cw = int(cur_fg.shape[0]), int(cur_fg.shape[1])
 
-            # Check for crossfade to next image
             blend = 0.0
             next_seg = seg + 1
             if seg < len(fg_change_times) and next_seg < n_fg:
@@ -707,7 +732,6 @@ def _make_dynamic_slide_clip(
                 if 0 < time_to_change < fg_crossfade:
                     blend = 1.0 - time_to_change / fg_crossfade
 
-            # Composite foreground image onto frame
             y1 = max(0, fg_y)
             x1 = max(0, fg_x)
             y2 = min(target_h, fg_y + ch)
@@ -717,23 +741,27 @@ def _make_dynamic_slide_clip(
             sy2 = sy1 + (y2 - y1)
             sx2 = sx1 + (x2 - x1)
 
-            fg_slice = cur_fg[sy1:sy2, sx1:sx2]
+            fg_slice = cur_fg[sy1:sy2, sx1:sx2].astype(np.float32)
             if blend > 0.01 and next_seg < n_fg:
                 next_fg = fg_arrays[next_seg]
-                next_slice = next_fg[sy1:sy2, sx1:sx2]
+                next_slice = next_fg[sy1:sy2, sx1:sx2].astype(np.float32)
                 fg_slice = fg_slice * (1.0 - blend) + next_slice * blend
 
-            fg_a = fg_slice[:, :, 3:4] / 255.0
+            fg_a = fg_slice[:, :, 3:4] * (1.0 / 255.0)
             fg_rgb = fg_slice[:, :, :3]
 
             region = frame[y1:y2, x1:x2]
             frame[y1:y2, x1:x2] = region * (1.0 - fg_a) + fg_rgb * fg_a
 
-        # ── 4. TEXT OVERLAY (always on top) ──
-        result = frame * (1.0 - text_alpha) + text_rgb * text_alpha
-        return result.astype(np.uint8)
+        # ── 4. TEXT OVERLAY (only where text exists — skip transparent pixels) ──
+        if text_mask.any():
+            t_a = text_alpha_u8[text_mask].astype(np.float32).reshape(-1, 1) * (1.0 / 255.0)
+            t_rgb = text_rgb_u8[text_mask].astype(np.float32)
+            frame[text_mask] = frame[text_mask] * (1.0 - t_a) + t_rgb * t_a
 
-    return VideoClip(make_frame, duration=duration).with_fps(24)
+        return frame.astype(np.uint8)
+
+    return VideoClip(make_frame, duration=duration).with_fps(18)
 
 
 # ── Static Video Builders ────────────────────────────────────────────────────
@@ -838,7 +866,7 @@ def build_video(
         output_path = os.path.join(output_dir, "narrated_slides.mp4")
         final.write_videofile(
             output_path,
-            fps=24,
+            fps=18,
             codec="libx264",
             audio_codec="aac",
             logger="bar",
@@ -944,7 +972,7 @@ def build_video_with_ai_images(
 
         output_path = os.path.join(output_dir, "narrated_ai_slides.mp4")
         final.write_videofile(
-            output_path, fps=24, codec="libx264",
+            output_path, fps=18, codec="libx264",
             audio_codec="aac", logger="bar",
             ffmpeg_params=["-movflags", "+faststart"],
         )
@@ -1385,7 +1413,7 @@ def build_video_with_searched_images(
 
         output_path = os.path.join(output_dir, "narrated_web_slides.mp4")
         final_video.write_videofile(
-            output_path, fps=24, codec="libx264",
+            output_path, fps=18, codec="libx264",
             audio_codec="aac", logger="bar",
             ffmpeg_params=["-movflags", "+faststart"],
         )
@@ -1770,7 +1798,7 @@ def build_video_with_chart_overlays(
 
         output_path = os.path.join(output_dir, "narrated_chart_slides.mp4")
         final_video.write_videofile(
-            output_path, fps=24, codec="libx264",
+            output_path, fps=18, codec="libx264",
             audio_codec="aac", logger="bar",
             ffmpeg_params=["-movflags", "+faststart"],
         )
