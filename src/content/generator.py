@@ -1616,7 +1616,7 @@ def generate_video_script(
     engine while the viewer looks at the slide.
     """
     slide_text = json.dumps(slides, indent=2)
-    prompt = f"""You are a professional voiceover scriptwriter for short-form finance videos on TikTok and Instagram.
+    prompt = f"""You are a top-tier voiceover scriptwriter for short-form finance videos on TikTok and Instagram Reels.
 
 Topic: {topic or 'finance'}
 Angle: {angle or 'general'}
@@ -1624,16 +1624,26 @@ Angle: {angle or 'general'}
 Here are the slides for the video:
 {slide_text}
 
-Write a natural, conversational voiceover script for EACH slide. Rules:
+Write a compelling voiceover script for EACH slide. Follow these rules precisely:
 
-1. Each slide's narration should be 2-3 sentences (15-30 words).
-2. The tone is confident, knowledgeable, and slightly urgent — like a friend who works in finance giving you insider info.
-3. Do NOT just read the slide text verbatim. EXPAND on it — add context, explain why it matters, connect the dots.
-4. Slide 1 (hook): Start with a bold, attention-grabbing opening. No "hey guys" or "welcome to".
-5. Last slide (CTA): End with a natural call to action that drives engagement (comment, follow, share).
-6. Use short sentences. No jargon. Speak like a human, not a textbook.
-7. Include natural speech patterns: brief pauses (use "..."), rhetorical questions, emphasis words.
-8. The script should flow as one continuous narrative across all slides.
+STRUCTURE & PACING:
+1. Each slide's narration: 2-4 sentences (20-40 words). Vary sentence length for rhythm — mix punchy 3-word statements with longer explanations.
+2. Slide 1 (hook): Open with a provocative question, a surprising contrast, or a bold claim that makes scrollers stop. Never "hey guys" or "welcome to". Example patterns: "Most people think X... they're wrong.", "Here's what nobody tells you about X."
+3. Middle slides: Each should deliver ONE clear insight. Build tension — set up "the problem" before "the answer". Use cause → effect structure.
+4. Last slide (CTA): End with a specific, natural call to action. Don't just say "follow" — give them a reason. Example: "Follow for the next breakdown" or "Comment which one surprised you most."
+5. The script must flow as one continuous story across all slides — each slide should feel like the next logical beat.
+
+TONE & DELIVERY:
+6. Sound like a sharp analyst briefing a friend, not a textbook or a hype influencer.
+7. Use power words that create urgency: "quietly", "just happened", "most people missed", "here's the catch".
+8. Include natural speech markers for TTS: brief pauses (use "..."), rhetorical questions, emphasis through repetition.
+9. Vary your openings — don't start every slide the same way. Mix statements, questions, and "here's why" transitions.
+
+FACTUAL ACCURACY (NON-NEGOTIABLE):
+10. ONLY use numbers, percentages, prices, and statistics that appear in the slide content. NEVER invent or estimate data.
+11. If a slide uses directional language ("rising sharply", "near highs"), keep it directional in the script. Do NOT convert vague language into specific numbers.
+12. You may rephrase and add context, but the underlying facts must come exclusively from the slides. When in doubt, be vaguer, not more specific.
+13. Add "why it matters" context — explain implications and connect dots — but never fabricate the supporting data.
 
 Return your response as a JSON array of strings, one per slide:
 ["script for slide 1", "script for slide 2", ...]

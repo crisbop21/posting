@@ -567,6 +567,7 @@ if st.session_state.step > 1:
         # Clear file caches to free memory
         _read_file_bytes.clear()
         _build_zip_bytes.clear()
+        gc.collect()
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1233,6 +1234,15 @@ elif st.session_state.step == 5:
             st.session_state.conclusion_report = None
             st.session_state.coherence_report = None
             st.session_state.tiktok_metadata = None
+            # Free Studio assets from previous generation
+            st.session_state.ai_image_paths = []
+            st.session_state.png_paths = []
+            st.session_state.mcp_alternatives = []
+            st.session_state.video_path = None
+            st.session_state.video_scripts = []
+            _read_file_bytes.clear()
+            _build_zip_bytes.clear()
+            gc.collect()
             st.rerun()
         if gen_cols[1].button("Continue to Studio", type="primary", use_container_width=True):
             st.session_state.step = 6
@@ -2138,6 +2148,8 @@ elif st.session_state.step == 6:
                                     output_dir="./output",
                                     handle=handle,
                                     voice_id=elevenlabs_voice,
+                                    topic=_topic,
+                                    angle=_angle,
                                 )
                                 st.session_state.video_search_queries = []
                             elif use_ai:
@@ -2224,5 +2236,15 @@ elif st.session_state.step == 6:
     # ── Back to edit hook/regenerate ───────────────────────────────────────
     st.divider()
     if st.button("Back to Hook Selection"):
+        # Free large Studio data (images, video, alternatives) to reclaim memory
+        for key in ["ai_image_paths", "ai_image_prompts", "ai_overlay_prompts",
+                     "png_paths", "pptx_path", "mcp_alternatives",
+                     "video_path", "video_scripts", "video_search_queries",
+                     "video_search_results", "video_build_error"]:
+            if key in st.session_state:
+                st.session_state[key] = type(st.session_state[key])() if isinstance(st.session_state[key], (list, dict)) else None
+        _read_file_bytes.clear()
+        _build_zip_bytes.clear()
+        gc.collect()
         st.session_state.step = 4
         st.rerun()
