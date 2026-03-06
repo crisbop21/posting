@@ -465,3 +465,77 @@ def search_transparent_cutouts(
         results.append((query, downloaded))
 
     return results
+
+
+def search_entity_images(
+    entity_mentions: list[list[dict]],
+    target_size: int = 200,
+) -> dict[str, Optional[Image.Image]]:
+    """Search for logos/headshots of named entities (companies, people).
+
+    Deduplicates by entity name so each unique entity is only searched once.
+    Returns small square-ish images suitable for corner overlays.
+
+    Args:
+        entity_mentions: Output of extract_entity_mentions() — list of lists
+            (one per slide), each containing entity dicts with 'name' and
+            'search_query' keys.
+        target_size: Target height/width for the entity images.
+
+    Returns:
+        Dict mapping entity name → PIL Image (RGBA) or None.
+    """
+    # Deduplicate entities across all slides
+    unique_entities: dict[str, str] = {}
+    for slide_entities in entity_mentions:
+        for ent in slide_entities:
+            name = ent.get("name", "")
+            query = ent.get("search_query", "")
+            if name and query and name not in unique_entities:
+                unique_entities[name] = query
+
+    if not unique_entities:
+        return {}
+
+    provider = get_available_provider()
+    print(f"[entity_search] Using {provider} for entity image search")
+
+    results: dict[str, Optional[Image.Image]] = {}
+
+    for name, query in unique_entities.items():
+        time.sleep(0.5)  # Rate limiting
+
+        search_results = search_images(query, count=5, orientation="squarish")
+
+        downloaded = None
+        for sr in search_results:
+            img = download_image(sr["url"])
+            if img is None:
+                continue
+
+            img = img.convert("RGBA")
+
+            # Scale to target size, preserving aspect ratio, fit in square
+            orig_w, orig_h = img.size
+            scale = min(target_size / orig_w, target_size / orig_h)
+            new_w = int(orig_w * scale)
+            new_h = int(orig_h * scale)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+            # Center on square transparent canvas
+            canvas = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))
+            x_off = (target_size - new_w) // 2
+            y_off = (target_size - new_h) // 2
+            canvas.paste(img, (x_off, y_off), img)
+            img.close()
+
+            downloaded = canvas
+            print(f"[entity_search] Found image for '{name}'")
+            break
+
+        if downloaded is None:
+            print(f"[entity_search] No image found for '{name}'")
+
+        results[name] = downloaded
+
+    return results
