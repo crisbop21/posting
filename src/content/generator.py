@@ -1734,3 +1734,72 @@ def _parse_json(text: str):
     if match:
         text = match.group(1).strip()
     return json.loads(text)
+
+
+def extract_entity_mentions(
+    scripts: list[str],
+) -> list[list[dict]]:
+    """Extract company and person names from voiceover scripts.
+
+    Uses Claude to identify entities worth showing as visual overlays
+    (company logos, person headshots) during the video.
+
+    Args:
+        scripts: List of voiceover script strings, one per slide.
+
+    Returns:
+        List of lists (one per slide). Each inner list contains dicts:
+        {
+            "name": "Tesla",
+            "type": "company" | "person",
+            "search_query": "Tesla logo transparent png",
+            "char_start": 45,   # character offset in the script
+            "char_end": 50,
+        }
+    """
+    combined = "\n---\n".join(
+        f"SLIDE {i}: {s}" for i, s in enumerate(scripts)
+    )
+
+    prompt = f"""Analyze these voiceover scripts and extract every mention of a specific company, brand, or notable person that would benefit from showing their logo or photo as a visual overlay.
+
+{combined}
+
+Rules:
+1. Only extract SPECIFIC named entities (e.g. "Tesla", "Warren Buffett", "Federal Reserve") — not generic terms like "the market" or "investors".
+2. For each entity, provide:
+   - "name": The entity name as it appears in the script
+   - "type": "company" or "person"
+   - "search_query": A search query to find their logo (for companies) or headshot (for people). Format: "CompanyName logo transparent png" or "PersonName headshot portrait".
+   - "slide_index": Which slide (0-based) the mention is in
+   - "char_start": Character offset where the name starts within that slide's script
+   - "char_end": Character offset where the name ends
+3. If the same entity appears in multiple slides, include each mention separately.
+4. Only include entities where a visual (logo/photo) would genuinely enhance understanding.
+
+Return a JSON array of objects. Return ONLY the JSON array, no other text.
+If no entities found, return [].
+"""
+
+    try:
+        response = create_message(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = _extract_text(response)
+        entities = _parse_json(text)
+    except Exception:
+        entities = []
+
+    if not isinstance(entities, list):
+        return [[] for _ in scripts]
+
+    # Group by slide index
+    result: list[list[dict]] = [[] for _ in scripts]
+    for ent in entities:
+        idx = ent.get("slide_index", 0)
+        if 0 <= idx < len(scripts):
+            result[idx].append(ent)
+
+    return result

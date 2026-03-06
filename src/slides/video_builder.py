@@ -445,6 +445,59 @@ def _make_kenburns_clip(
     return VideoClip(make_frame, duration=duration).with_fps(18)
 
 
+# ── Entity Overlay Timing ────────────────────────────────────────────────────
+
+
+def _build_entity_overlay_timing(
+    slide_entities: list[dict],
+    entity_arrays: dict,
+    script: str,
+    char_starts: list[float],
+    char_ends: list[float],
+    pre_roll: float = 0.0,
+    linger: float = 0.5,
+) -> list[dict]:
+    """Build timed entity overlays from extracted entity mentions + TTS timestamps.
+
+    For each entity in the slide, maps its character position in the script
+    to the corresponding speech timestamps so the logo/headshot appears
+    exactly when the name is spoken.
+
+    Returns:
+        List of dicts with keys: image (numpy), start (float), end (float), linger (float).
+    """
+    result = []
+    for ent in slide_entities:
+        name = ent.get("name", "")
+        if name not in entity_arrays:
+            continue
+
+        char_start = ent.get("char_start", 0)
+        char_end = ent.get("char_end", char_start + len(name))
+
+        # Map character positions to speech timestamps
+        if char_starts and char_start < len(char_starts):
+            start_time = char_starts[min(char_start, len(char_starts) - 1)]
+        else:
+            # Fallback: estimate from character position ratio
+            ratio = char_start / max(len(script), 1)
+            start_time = ratio * (char_ends[-1] if char_ends else 3.0)
+
+        if char_ends and char_end - 1 < len(char_ends):
+            end_time = char_ends[min(char_end - 1, len(char_ends) - 1)]
+        else:
+            end_time = start_time + 0.5
+
+        result.append({
+            "image": entity_arrays[name],
+            "start": start_time + pre_roll,
+            "end": end_time + pre_roll,
+            "linger": linger,
+        })
+
+    return result
+
+
 # ── Sound Effects ────────────────────────────────────────────────────────────
 
 
@@ -607,8 +660,16 @@ def _make_dynamic_slide_clip(
     cinematic_overlays=None,
     overlay_change_times=None,
     overlay_crossfade=0.5,
+    entity_overlays=None,
 ):
     """Create an animated slide clip with rotating backgrounds and foreground images.
+
+    Args (new):
+        entity_overlays: List of dicts with keys:
+            - "image": numpy array (H, W, 4) uint8 RGBA
+            - "start": float, seconds when entity name starts being spoken
+            - "end": float, seconds when entity name finishes being spoken
+            - "linger": float, extra seconds to keep visible after speech ends
 
     Layout zones (1080x1920):
       - 8-20%: title (text overlay)
@@ -689,6 +750,16 @@ def _make_dynamic_slide_clip(
     for fg_img in fg_images:
         fg_arr = np.array(fg_img.convert("RGBA"))  # uint8
         fg_arrays.append(fg_arr)
+
+    # Entity overlays — pre-processed list of (array, start, end) tuples
+    ent_items = []
+    if entity_overlays:
+        for eo in entity_overlays:
+            arr = eo["image"]  # already numpy uint8 RGBA
+            ent_items.append((arr, eo["start"], eo["end"] + eo.get("linger", 0.5)))
+    # Entity overlay position: top-right corner with padding
+    ent_pad = int(target_w * 0.04)
+    ent_y = int(target_h * 0.08)
 
     # Pre-allocate reusable frame buffer for Ken Burns crops
     _kb_buf = np.empty((target_h, target_w, 3), dtype=np.float32)
@@ -844,7 +915,45 @@ def _make_dynamic_slide_clip(
             region = frame[y1:y2, x1:x2]
             frame[y1:y2, x1:x2] = region * (1.0 - fg_a) + fg_rgb * fg_a
 
-        # ── 4. TEXT OVERLAY (only where text exists — skip transparent pixels) ──
+        # ── 4. ENTITY OVERLAY (logo/headshot synced to spoken name) ──
+        if ent_items:
+            fade = 0.15  # fade in/out duration
+            for ent_arr, ent_start, ent_end in ent_items:
+                if t < ent_start - fade or t > ent_end + fade:
+                    continue
+                # Compute opacity with fade-in / fade-out
+                if t < ent_start:
+                    opacity = (t - (ent_start - fade)) / fade
+                elif t > ent_end:
+                    opacity = 1.0 - (t - ent_end) / fade
+                else:
+                    opacity = 1.0
+                opacity = max(0.0, min(1.0, opacity))
+                if opacity < 0.01:
+                    continue
+
+                eh, ew = ent_arr.shape[:2]
+                ex = target_w - ew - ent_pad
+                ey = ent_y
+
+                # Clip to frame bounds
+                ey1 = max(0, ey)
+                ex1 = max(0, ex)
+                ey2 = min(target_h, ey + eh)
+                ex2 = min(target_w, ex + ew)
+                sy1 = ey1 - ey
+                sx1 = ex1 - ex
+                sy2 = sy1 + (ey2 - ey1)
+                sx2 = sx1 + (ex2 - ex1)
+
+                ent_slice = ent_arr[sy1:sy2, sx1:sx2].astype(np.float32)
+                ent_a = ent_slice[:, :, 3:4] * (opacity / 255.0)
+                ent_rgb = ent_slice[:, :, :3]
+
+                region = frame[ey1:ey2, ex1:ex2]
+                frame[ey1:ey2, ex1:ex2] = region * (1.0 - ent_a) + ent_rgb * ent_a
+
+        # ── 5. TEXT OVERLAY (only where text exists — skip transparent pixels) ──
         if text_mask.any():
             t_a = text_alpha_u8[text_mask].astype(np.float32).reshape(-1, 1) * (1.0 / 255.0)
             t_rgb = text_rgb_u8[text_mask].astype(np.float32)
@@ -1352,6 +1461,26 @@ def build_video_with_searched_images(
     del cutout_images, image_results
     gc.collect()
 
+    # Step 2c: Extract entity mentions and fetch logos/headshots
+    from src.content.generator import extract_entity_mentions
+    from src.slides.image_search import search_entity_images
+    import numpy as np
+
+    try:
+        entity_mentions = extract_entity_mentions(scripts)
+        entity_images = search_entity_images(entity_mentions, target_size=int(img_w * 0.18))
+        entity_arrays: dict[str, object] = {}
+        for name, eimg in entity_images.items():
+            if eimg is not None:
+                entity_arrays[name] = np.array(eimg.convert("RGBA"))
+                eimg.close()
+        del entity_images
+    except Exception as exc:
+        print(f"[entity_overlay] Entity extraction failed (proceeding without): {exc}")
+        entity_mentions = [[] for _ in scripts]
+        entity_arrays = {}
+    gc.collect()
+
     # Step 3: Synthesize audio (with timestamps), generate SFX, assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Pre-generate SFX files
@@ -1421,6 +1550,17 @@ def build_video_with_searched_images(
                     if overlay_change_times:
                         overlay_change_times = [t + pre_roll for t in overlay_change_times]
 
+                # Build entity overlay timing for this slide
+                slide_ent = entity_mentions[i] if i < len(entity_mentions) else []
+                ent_overlays = _build_entity_overlay_timing(
+                    slide_entities=slide_ent,
+                    entity_arrays=entity_arrays,
+                    script=script,
+                    char_starts=char_starts,
+                    char_ends=char_ends,
+                    pre_roll=pre_roll,
+                )
+
                 clip = _make_dynamic_slide_clip(
                     treated_bgs=treated_bgs,
                     overlay_rgba=overlay,
@@ -1434,6 +1574,7 @@ def build_video_with_searched_images(
                     caption_safe_pct=caption_safe_pct,
                     cinematic_overlays=slide_overlays,
                     overlay_change_times=overlay_change_times,
+                    entity_overlays=ent_overlays,
                 )
 
                 # Free PIL images now — numpy arrays are held in the clip closure
@@ -1476,6 +1617,13 @@ def build_video_with_searched_images(
                 for ot in (overlay_change_times or []):
                     if ot < duration - 0.3:
                         sfx = AudioFileClip(reveal_sfx_path).with_start(ot)
+                        audio_parts.append(sfx)
+
+                # Pop SFX when entity overlays appear
+                for eo in ent_overlays:
+                    eo_t = eo["start"]
+                    if 0 < eo_t < duration - 0.3:
+                        sfx = AudioFileClip(pop_sfx_path).with_start(eo_t)
                         audio_parts.append(sfx)
 
                 if len(audio_parts) > 1:
@@ -1848,6 +1996,28 @@ def build_video_with_chart_overlays(
     non_chart_fg.clear()
     gc.collect()
 
+    # Step 3b: Extract entity mentions and fetch logos/headshots
+    from src.content.generator import extract_entity_mentions
+    from src.slides.image_search import search_entity_images
+    import numpy as np
+
+    try:
+        entity_mentions = extract_entity_mentions(scripts)
+        entity_images = search_entity_images(entity_mentions, target_size=int(img_w * 0.18))
+        # Convert PIL images to numpy arrays and close originals
+        entity_arrays: dict[str, object] = {}
+        for name, img in entity_images.items():
+            if img is not None:
+                entity_arrays[name] = np.array(img.convert("RGBA"))
+                img.close()
+        del entity_images
+    except Exception as exc:
+        print(f"[entity_overlay] Entity extraction failed (proceeding without): {exc}")
+        entity_mentions = [[] for _ in scripts]
+        entity_arrays = {}
+
+    gc.collect()
+
     # Step 4: Synthesize audio, assemble video
     with tempfile.TemporaryDirectory() as tmp_dir:
         pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
@@ -1893,6 +2063,17 @@ def build_video_with_chart_overlays(
                 if bg_change_times:
                     bg_change_times = [t + pre_roll for t in bg_change_times]
 
+            # Build entity overlay timing for this slide
+            slide_ent = entity_mentions[i] if i < len(entity_mentions) else []
+            ent_overlays = _build_entity_overlay_timing(
+                slide_entities=slide_ent,
+                entity_arrays=entity_arrays,
+                script=script,
+                char_starts=char_starts,
+                char_ends=char_ends,
+                pre_roll=pre_roll,
+            )
+
             clip = _make_dynamic_slide_clip(
                 treated_bgs=treated_bgs,
                 overlay_rgba=overlay,
@@ -1905,6 +2086,7 @@ def build_video_with_chart_overlays(
                 bg_change_times=bg_change_times,
                 caption_safe_pct=caption_safe_pct,
                 cinematic_overlays=slide_overlays,
+                entity_overlays=ent_overlays,
             )
 
             # Free PIL images
@@ -1934,6 +2116,13 @@ def build_video_with_chart_overlays(
             for bt in (bg_change_times or []):
                 if bt < duration - 0.3:
                     sfx = AudioFileClip(whoosh_sfx_path).with_start(bt)
+                    audio_parts.append(sfx)
+
+            # Pop SFX when entity overlays appear
+            for eo in ent_overlays:
+                eo_t = eo["start"]
+                if 0 < eo_t < duration - 0.3:
+                    sfx = AudioFileClip(pop_sfx_path).with_start(eo_t)
                     audio_parts.append(sfx)
 
             if len(audio_parts) > 1:
