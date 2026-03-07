@@ -1429,6 +1429,97 @@ Return ONLY the JSON array, no other text."""
     ]
 
 
+def _count_sentences(text: str) -> int:
+    """Count sentences in a script by splitting on sentence-ending punctuation."""
+    parts = re.split(r'[.!?;—]+(?:\s|$)', text.strip())
+    return max(1, len([p for p in parts if p.strip()]))
+
+
+def generate_per_sentence_image_prompts(
+    slides: list[dict],
+    scripts: list[str],
+    topic: str = "",
+    angle: str = "",
+) -> list[list[str]]:
+    """Generate one unique AI image prompt per sentence in each slide script.
+
+    Returns a list of lists — prompts[i] is a list of prompts for slide i,
+    one per sentence, so every sentence gets its own unique visual.
+    """
+    # Build a structured breakdown of sentences per slide
+    slide_sentences = []
+    for i, script in enumerate(scripts):
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?;—])\s+', script.strip()) if s.strip()]
+        if not sentences:
+            sentences = [script.strip()]
+        slide_sentences.append(sentences)
+
+    slides_text = json.dumps(slides, indent=2)
+    sentences_text = json.dumps(
+        {f"slide_{i+1}": sents for i, sents in enumerate(slide_sentences)},
+        indent=2,
+    )
+
+    prompt = f"""You are an expert visual director creating image prompts for AI image generation.
+
+Topic: {topic or 'finance'}
+Angle: {angle or 'general'}
+
+Here are the slides:
+{slides_text}
+
+Here are the sentences for each slide's voiceover:
+{sentences_text}
+
+Generate ONE unique image prompt PER SENTENCE. Each sentence needs its own distinct visual.
+
+Rules:
+1. Every prompt must describe a DIFFERENT scene — NO repeated or similar compositions
+2. Each prompt should visually match the specific sentence it accompanies
+3. Use "Cinematic realistic, " as prefix for every prompt
+4. 20-40 words each — specific enough for good AI generation
+5. Finance-themed imagery: trading floors, cityscapes, corporate offices, currency, tech offices, etc.
+6. NEVER include text, numbers, letters, logos, or UI elements
+7. Vary camera angles, lighting, and subjects across prompts
+8. Clean compositions with visual depth — images will have text overlaid
+
+Return a JSON object where keys are "slide_1", "slide_2", etc. and values are arrays of prompt strings (one per sentence):
+{{"slide_1": ["Cinematic realistic, prompt for sentence 1", "Cinematic realistic, prompt for sentence 2"], "slide_2": [...]}}
+
+Return ONLY the JSON object, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    result = _parse_json(text)
+
+    fallback_prompt = f"Cinematic realistic, {topic or 'finance'} scene, dramatic lighting, hyper-realistic, 8k"
+
+    if isinstance(result, dict):
+        prompts_per_slide = []
+        for i in range(len(slides)):
+            key = f"slide_{i + 1}"
+            slide_prompts = result.get(key, [])
+            if not isinstance(slide_prompts, list):
+                slide_prompts = [slide_prompts]
+            # Ensure we have at least as many prompts as sentences
+            n_needed = len(slide_sentences[i])
+            while len(slide_prompts) < n_needed:
+                slide_prompts.append(f"{fallback_prompt}, alternative angle {len(slide_prompts) + 1}")
+            prompts_per_slide.append(slide_prompts[:n_needed])
+        return prompts_per_slide
+
+    # Fallback: one generic prompt per sentence
+    return [
+        [f"{fallback_prompt}, variation {j + 1}" for j in range(len(sents))]
+        for sents in slide_sentences
+    ]
+
+
 # ── Cinematic Overlay Styles ────────────────────────────────────────────────
 
 OVERLAY_STYLE_DESCRIPTIONS = {

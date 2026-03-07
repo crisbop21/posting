@@ -1858,3 +1858,64 @@ def generate_all_ai_images(
         gc.collect()
 
     return results
+
+
+def generate_per_sentence_ai_images(
+    prompts_per_slide: list[list[str]],
+    n_bg: int = 2,
+    target_size: tuple[int, int] = (1080, 1920),
+) -> list[tuple[str, list[Image.Image]]]:
+    """Generate AI images per slide: n_bg backgrounds + one unique fg per sentence.
+
+    Args:
+        prompts_per_slide: List of lists — prompts_per_slide[i] has one prompt
+            per sentence for slide i. The first prompt is also used (with variation)
+            to generate backgrounds.
+        n_bg: Number of background images to generate per slide.
+        target_size: (width, height) to resize generated images to.
+
+    Returns:
+        List of (first_prompt, [Image]) tuples, one per slide.
+        Images are ordered: [bg_0, bg_1, ..., fg_sentence_0, fg_sentence_1, ...].
+    """
+    import gc
+
+    results: list[tuple[str, list[Image.Image]]] = []
+    width, height = target_size
+
+    for i, slide_prompts in enumerate(prompts_per_slide):
+        images: list[Image.Image] = []
+        base_prompt = slide_prompts[0] if slide_prompts else "Cinematic realistic, finance scene"
+
+        # Generate backgrounds from the first prompt with variations
+        for b in range(n_bg):
+            if i > 0 or b > 0:
+                time.sleep(2)
+            bg_prompt = f"{base_prompt}, wide establishing shot, variation {b + 1}"
+            try:
+                img_bytes = generate_image(prompt=bg_prompt, width=width, height=height)
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+                img = img.resize(target_size, Image.Resampling.LANCZOS)
+                images.append(img)
+                del img_bytes
+            except Exception as exc:
+                print(f"  Warning: bg image {b + 1}/{n_bg} failed for slide {i + 1}: {exc}")
+
+        # Generate one unique foreground image per sentence
+        for j, fg_prompt in enumerate(slide_prompts):
+            time.sleep(2)
+            try:
+                img_bytes = generate_image(prompt=fg_prompt, width=width, height=height)
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+                img = img.resize(target_size, Image.Resampling.LANCZOS)
+                images.append(img)
+                del img_bytes
+            except Exception as exc:
+                print(f"  Warning: fg image {j + 1}/{len(slide_prompts)} failed for slide {i + 1}: {exc}")
+
+        n_fg = len(images) - min(n_bg, len(images))
+        print(f"[ai_images] Slide {i + 1}: {len(images)} images ({n_bg} bg + {n_fg} fg for {len(slide_prompts)} sentences)")
+        results.append((base_prompt, images))
+        gc.collect()
+
+    return results
