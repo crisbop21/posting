@@ -318,6 +318,74 @@ def _extract_sentence_times(
     return [interval * (j + 1) for j in range(n_transitions) if interval * (j + 1) < duration - 0.3]
 
 
+def _compute_fg_display_windows(
+    script: str,
+    char_starts: list[float],
+    char_ends: list[float],
+    duration: float,
+    n_fg: int,
+    pre_roll: float = 0.0,
+) -> list[tuple[float, float]]:
+    """Compute per-sentence display windows for foreground images/charts.
+
+    Each foreground image is assigned to exactly one sentence so that no
+    image stays on screen for longer than a single idea.
+
+    Args:
+        script: Voiceover text.
+        char_starts: Per-character start times from TTS alignment.
+        char_ends: Per-character end times from TTS alignment.
+        duration: Total slide duration in seconds.
+        n_fg: Number of foreground images available.
+        pre_roll: Seconds of silence prepended to the first slide.
+
+    Returns:
+        List of (start, end) tuples, one per foreground image.
+        Images should only be visible within their window.
+    """
+    if n_fg == 0:
+        return []
+
+    # Collect sentence boundary positions and their spoken times
+    sentence_boundaries: list[tuple[float, float]] = []  # (start, end)
+    if char_starts and char_ends:
+        # Find sentence-ending punctuation
+        ends = []
+        for m in re.finditer(r'[.!?;—](?:\s|$)', script):
+            pos = m.start()
+            if pos < len(char_ends):
+                ends.append(char_ends[pos])
+        ends = sorted(set(ends))
+
+        # Build sentence windows from boundary times
+        prev_end = 0.0
+        for end_t in ends:
+            if end_t > prev_end + 0.3:
+                sentence_boundaries.append((prev_end + pre_roll, end_t + pre_roll))
+                prev_end = end_t
+        # Add final segment if there's remaining time
+        if prev_end < duration - pre_roll - 0.3:
+            sentence_boundaries.append((prev_end + pre_roll, duration))
+
+    # Fallback: evenly divide the duration into sentence-sized windows
+    if not sentence_boundaries:
+        n_windows = max(n_fg, 1)
+        window_dur = duration / n_windows
+        sentence_boundaries = [
+            (i * window_dur, (i + 1) * window_dur) for i in range(n_windows)
+        ]
+
+    # Assign one sentence window per foreground image
+    windows = []
+    for i in range(n_fg):
+        if i < len(sentence_boundaries):
+            windows.append(sentence_boundaries[i])
+        else:
+            # No more sentences — hide extra images
+            windows.append((duration + 1, duration + 2))
+    return windows
+
+
 # ── Ken Burns Motion ─────────────────────────────────────────────────────────
 
 # Role → motion type mapping.
@@ -661,10 +729,15 @@ def _make_dynamic_slide_clip(
     overlay_change_times=None,
     overlay_crossfade=0.5,
     entity_overlays=None,
+    fg_display_windows=None,
 ):
     """Create an animated slide clip with rotating backgrounds and foreground images.
 
     Args (new):
+        fg_display_windows: Optional list of (start, end) tuples, one per
+            foreground image. Each image is only visible within its window
+            (with fade-in/out), ensuring no image stays longer than one
+            sentence/idea. If None, images are visible for their full segment.
         entity_overlays: List of dicts with keys:
             - "image": numpy array (H, W, 4) uint8 RGBA
             - "start": float, seconds when entity name starts being spoken
@@ -707,6 +780,10 @@ def _make_dynamic_slide_clip(
         ]
     if fg_change_times is None:
         fg_change_times = []
+
+    # Sentence-bounded display windows for foreground images
+    _fg_windows = fg_display_windows if fg_display_windows else []
+
     if bg_change_times is None:
         bg_interval = max(3.0, duration / max(len(treated_bgs), 1))
         bg_change_times = [
@@ -861,63 +938,83 @@ def _make_dynamic_slide_clip(
             seg = sum(1 for ft in fg_change_times if t >= ft)
             seg = min(seg, n_fg - 1)
 
-            cur_fg = fg_arrays[seg]
-            ch, cw = int(cur_fg.shape[0]), int(cur_fg.shape[1])
+            # Sentence-bounded display: compute window opacity for this image
+            _fg_window_opacity = 1.0
+            _fg_fade_dur = 0.25
+            if _fg_windows and seg < len(_fg_windows):
+                win_start, win_end = _fg_windows[seg]
+                if t < win_start - _fg_fade_dur or t > win_end + _fg_fade_dur:
+                    _fg_window_opacity = 0.0
+                elif t < win_start:
+                    _fg_window_opacity = (t - (win_start - _fg_fade_dur)) / _fg_fade_dur
+                elif t > win_end:
+                    _fg_window_opacity = 1.0 - (t - win_end) / _fg_fade_dur
+                _fg_window_opacity = max(0.0, min(1.0, _fg_window_opacity))
 
-            blend = 0.0
-            next_seg = seg + 1
-            if seg < len(fg_change_times) and next_seg < n_fg:
-                time_to_change = fg_change_times[seg] - t
-                if 0 < time_to_change < fg_crossfade:
-                    blend = 1.0 - time_to_change / fg_crossfade
+            if _fg_window_opacity > 0.01:
+                cur_fg = fg_arrays[seg]
+                ch, cw = int(cur_fg.shape[0]), int(cur_fg.shape[1])
 
-            # Pop-in scale animation: 93% → 100% over 0.3s with ease-out
-            pop_dur = 0.3
-            seg_start = fg_change_times[seg - 1] if seg > 0 else 0.0
-            time_in_seg = t - seg_start
-            if time_in_seg < pop_dur:
-                ease = 1.0 - (1.0 - time_in_seg / pop_dur) ** 3  # ease-out cubic
-                scale = 0.93 + 0.07 * ease
-            else:
-                scale = 1.0
+                blend = 0.0
+                next_seg = seg + 1
+                if seg < len(fg_change_times) and next_seg < n_fg:
+                    time_to_change = fg_change_times[seg] - t
+                    if 0 < time_to_change < fg_crossfade:
+                        blend = 1.0 - time_to_change / fg_crossfade
 
-            if scale < 0.999:
-                # Scale from center of the fg region
-                scaled_w = int(cw * scale)
-                scaled_h = int(ch * scale)
-                crop_x = (cw - scaled_w) // 2
-                crop_y = (ch - scaled_h) // 2
-                fg_crop = cur_fg[crop_y:crop_y + scaled_h, crop_x:crop_x + scaled_w]
-                from PIL import Image as _PILImg
-                fg_resized = np.array(
-                    _PILImg.fromarray(fg_crop).resize(
-                        (cw, ch), _PILImg.Resampling.BILINEAR,
+                # Pop-in scale animation: 93% → 100% over 0.3s with ease-out
+                pop_dur = 0.3
+                if _fg_windows and seg < len(_fg_windows):
+                    seg_start = _fg_windows[seg][0]
+                else:
+                    seg_start = fg_change_times[seg - 1] if seg > 0 else 0.0
+                time_in_seg = t - seg_start
+                if time_in_seg < pop_dur:
+                    ease = 1.0 - (1.0 - time_in_seg / pop_dur) ** 3  # ease-out cubic
+                    scale = 0.93 + 0.07 * ease
+                else:
+                    scale = 1.0
+
+                if scale < 0.999:
+                    # Scale from center of the fg region
+                    scaled_w = int(cw * scale)
+                    scaled_h = int(ch * scale)
+                    crop_x = (cw - scaled_w) // 2
+                    crop_y = (ch - scaled_h) // 2
+                    fg_crop = cur_fg[crop_y:crop_y + scaled_h, crop_x:crop_x + scaled_w]
+                    from PIL import Image as _PILImg
+                    fg_resized = np.array(
+                        _PILImg.fromarray(fg_crop).resize(
+                            (cw, ch), _PILImg.Resampling.BILINEAR,
+                        )
                     )
-                )
-                cur_fg_used = fg_resized
-            else:
-                cur_fg_used = cur_fg
+                    cur_fg_used = fg_resized
+                else:
+                    cur_fg_used = cur_fg
 
-            y1 = max(0, fg_y)
-            x1 = max(0, fg_x)
-            y2 = min(target_h, fg_y + ch)
-            x2 = min(target_w, fg_x + cw)
-            sy1 = y1 - fg_y
-            sx1 = x1 - fg_x
-            sy2 = sy1 + (y2 - y1)
-            sx2 = sx1 + (x2 - x1)
+                y1 = max(0, fg_y)
+                x1 = max(0, fg_x)
+                y2 = min(target_h, fg_y + ch)
+                x2 = min(target_w, fg_x + cw)
+                sy1 = y1 - fg_y
+                sx1 = x1 - fg_x
+                sy2 = sy1 + (y2 - y1)
+                sx2 = sx1 + (x2 - x1)
 
-            fg_slice = cur_fg_used[sy1:sy2, sx1:sx2].astype(np.float32)
-            if blend > 0.01 and next_seg < n_fg:
-                next_fg = fg_arrays[next_seg]
-                next_slice = next_fg[sy1:sy2, sx1:sx2].astype(np.float32)
-                fg_slice = fg_slice * (1.0 - blend) + next_slice * blend
+                fg_slice = cur_fg_used[sy1:sy2, sx1:sx2].astype(np.float32)
+                if blend > 0.01 and next_seg < n_fg:
+                    next_fg = fg_arrays[next_seg]
+                    next_slice = next_fg[sy1:sy2, sx1:sx2].astype(np.float32)
+                    fg_slice = fg_slice * (1.0 - blend) + next_slice * blend
 
-            fg_a = fg_slice[:, :, 3:4] * (1.0 / 255.0)
-            fg_rgb = fg_slice[:, :, :3]
+                fg_a = fg_slice[:, :, 3:4] * (1.0 / 255.0)
+                # Apply sentence-window opacity
+                if _fg_window_opacity < 0.99:
+                    fg_a = fg_a * _fg_window_opacity
+                fg_rgb = fg_slice[:, :, :3]
 
-            region = frame[y1:y2, x1:x2]
-            frame[y1:y2, x1:x2] = region * (1.0 - fg_a) + fg_rgb * fg_a
+                region = frame[y1:y2, x1:x2]
+                frame[y1:y2, x1:x2] = region * (1.0 - fg_a) + fg_rgb * fg_a
 
         # ── 4. ENTITY OVERLAY (logo/headshot synced to spoken name) ──
         if ent_items:
@@ -1554,6 +1651,16 @@ def build_video_with_searched_images(
                     if overlay_change_times:
                         overlay_change_times = [t + pre_roll for t in overlay_change_times]
 
+                # Compute sentence-bounded display windows for fg images
+                fg_display_windows = _compute_fg_display_windows(
+                    script=script,
+                    char_starts=char_starts,
+                    char_ends=char_ends,
+                    duration=duration,
+                    n_fg=len(fg_prepared),
+                    pre_roll=pre_roll,
+                )
+
                 # Build entity overlay timing for this slide
                 slide_ent = entity_mentions[i] if i < len(entity_mentions) else []
                 ent_overlays = _build_entity_overlay_timing(
@@ -1579,6 +1686,7 @@ def build_video_with_searched_images(
                     cinematic_overlays=slide_overlays,
                     overlay_change_times=overlay_change_times,
                     entity_overlays=ent_overlays,
+                    fg_display_windows=fg_display_windows,
                 )
 
                 # Free PIL images now — numpy arrays are held in the clip closure
@@ -2073,6 +2181,16 @@ def build_video_with_chart_overlays(
                 if bg_change_times:
                     bg_change_times = [t + pre_roll for t in bg_change_times]
 
+            # Compute sentence-bounded display windows for fg images
+            fg_display_windows = _compute_fg_display_windows(
+                script=script,
+                char_starts=char_starts,
+                char_ends=char_ends,
+                duration=duration,
+                n_fg=len(fg_prepared),
+                pre_roll=pre_roll,
+            )
+
             # Build entity overlay timing for this slide
             slide_ent = entity_mentions[i] if i < len(entity_mentions) else []
             ent_overlays = _build_entity_overlay_timing(
@@ -2097,6 +2215,7 @@ def build_video_with_chart_overlays(
                 caption_safe_pct=caption_safe_pct,
                 cinematic_overlays=slide_overlays,
                 entity_overlays=ent_overlays,
+                fg_display_windows=fg_display_windows,
             )
 
             # Free PIL images (fg_prepared are already numpy arrays)
