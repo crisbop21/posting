@@ -40,6 +40,7 @@ from src.content.generator import (
     enforce_hook_and_count,
     generate_image_prompts,
     generate_video_script,
+    regenerate_video_script,
     generate_image_search_queries,
     generate_overlay_prompts,
     analyze_charts,
@@ -2040,6 +2041,45 @@ elif st.session_state.step == 6:
                         key=f"script_edit_{i}",
                     )
                     edited_scripts.append(edited)
+
+                # ── Feedback & Regenerate ──────────────────────────────
+                st.markdown("---")
+                st.markdown("**Feedback — Regenerate Script**")
+                st.caption(
+                    "Provide feedback on the scripts above and click Regenerate "
+                    "to get improved scripts before building the video."
+                )
+                script_feedback = st.text_area(
+                    "Your feedback",
+                    placeholder="e.g. Make the hook more dramatic, use a more casual tone, shorten slide 3...",
+                    height=80,
+                    key="script_feedback",
+                )
+                if st.button(
+                    "Regenerate Script with Feedback",
+                    use_container_width=True,
+                    key="regen_script",
+                    disabled=not script_feedback.strip(),
+                ):
+                    _require_api_key()
+                    with st.spinner("Regenerating scripts with your feedback..."):
+                        try:
+                            topic = st.session_state.selected_topic["title"] if st.session_state.selected_topic else ""
+                            angle = st.session_state.get("angle", "")
+                            new_scripts = regenerate_video_script(
+                                slides=live_slides,
+                                current_scripts=edited_scripts,
+                                feedback=script_feedback,
+                                topic=topic,
+                                angle=angle,
+                            )
+                            st.session_state.video_scripts = new_scripts
+                            st.session_state.video_path = None
+                            st.session_state.video_search_queries = []
+                            st.session_state.video_search_results = {}
+                        except Exception as exc:
+                            st.error(f"Script regeneration failed: {exc}")
+                    st.rerun()
 
                 # ── Step 2: Build video with edited scripts ────────────
                 st.markdown("---")

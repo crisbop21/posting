@@ -1672,6 +1672,78 @@ Return ONLY the JSON array, no other text."""
     ]
 
 
+def regenerate_video_script(
+    slides: list[dict],
+    current_scripts: list[str],
+    feedback: str,
+    topic: str = "",
+    angle: str = "",
+) -> list[str]:
+    """Regenerate voiceover scripts incorporating user feedback.
+
+    Takes the current scripts and user feedback, returns improved scripts.
+    """
+    slide_text = json.dumps(slides, indent=2)
+    scripts_text = json.dumps(current_scripts, indent=2)
+    prompt = f"""You are a top-tier voiceover scriptwriter for short-form finance videos on TikTok and Instagram Reels.
+
+Topic: {topic or 'finance'}
+Angle: {angle or 'general'}
+
+Here are the slides for the video:
+{slide_text}
+
+Here are the current voiceover scripts:
+{scripts_text}
+
+The user has provided the following feedback on the scripts:
+{feedback}
+
+Rewrite the voiceover scripts incorporating the user's feedback. Follow these rules:
+
+STRUCTURE & PACING:
+1. Each slide's narration: 2-4 sentences (20-40 words). Vary sentence length for rhythm.
+2. Slide 1 (hook): Open with a provocative question, surprising contrast, or bold claim.
+3. Middle slides: Each should deliver ONE clear insight with cause → effect structure.
+4. Last slide (CTA): End with a specific, natural call to action.
+5. The script must flow as one continuous story across all slides.
+
+TONE & DELIVERY:
+6. Sound like a sharp analyst briefing a friend.
+7. Use power words that create urgency.
+8. Include natural speech markers for TTS: brief pauses (use "..."), rhetorical questions.
+9. Vary your openings.
+
+FACTUAL ACCURACY (NON-NEGOTIABLE):
+10. ONLY use numbers, percentages, prices, and statistics that appear in the slide content.
+11. If a slide uses directional language, keep it directional. Do NOT invent specific numbers.
+12. You may rephrase and add context, but facts must come exclusively from the slides.
+
+IMPORTANT: Address the user's feedback while maintaining quality and factual accuracy.
+
+Return your response as a JSON array of strings, one per slide:
+["script for slide 1", "script for slide 2", ...]
+
+Return ONLY the JSON array, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    result = _parse_json(text)
+
+    if isinstance(result, list):
+        while len(result) < len(slides):
+            result.append(result[-1] if result else "")
+        return result[: len(slides)]
+
+    # Fallback: return current scripts unchanged
+    return current_scripts
+
+
 def generate_tiktok_metadata(
     slides: list[dict],
     topic: str,
