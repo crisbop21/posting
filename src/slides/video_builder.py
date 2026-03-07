@@ -1402,6 +1402,7 @@ def build_video_with_searched_images(
         composite_slide,
         composite_slide_layers,
         generate_all_ai_images,
+        generate_per_sentence_ai_images,
         get_slide_role,
         treat_background,
     )
@@ -1416,9 +1417,15 @@ def build_video_with_searched_images(
 
     # Step 1: Get images — either web search or AI generation
     if image_source == "ai":
-        image_results = generate_all_ai_images(
-            prompts=search_queries,
-            per_prompt=3,
+        # Generate one unique image per sentence so every idea has its own visual
+        from src.content.generator import generate_per_sentence_image_prompts
+        per_sentence_prompts = generate_per_sentence_image_prompts(
+            slides=slides, scripts=scripts,
+            topic="", angle="",
+        )
+        image_results = generate_per_sentence_ai_images(
+            prompts_per_slide=per_sentence_prompts,
+            n_bg=2,
             target_size=(img_w, img_h),
         )
     else:
@@ -2034,39 +2041,37 @@ def build_video_with_chart_overlays(
         except Exception:
             pass
 
-    # Step 2b: Fetch web images for slides that don't have a chart
+    # Step 2b: Generate AI images for slides that don't have a chart
+    # — one unique image per sentence so every idea gets its own visual
     non_chart_indices = [
         i for i in range(len(slides))
         if (i >= len(chart_slide_mapping) or chart_slide_mapping[i] is None)
     ]
-    non_chart_fg = {}
+    non_chart_fg: dict[int, list] = {}  # idx -> list of prepared fg images
     if non_chart_indices:
-        from src.content.generator import generate_image_search_queries
-        from src.slides.image_search import search_and_download_all_images
+        from src.content.generator import generate_per_sentence_image_prompts
+        from src.slides.image_generator import generate_per_sentence_ai_images
 
         nc_slides = [slides[i] for i in non_chart_indices]
         nc_scripts = [scripts[i] for i in non_chart_indices]
-        nc_queries = generate_image_search_queries(
+        nc_prompts = generate_per_sentence_image_prompts(
             slides=nc_slides, scripts=nc_scripts, topic=topic, angle=angle,
         )
-        nc_results = search_and_download_all_images(
-            queries=nc_queries,
-            per_query=3,
-            orientation="portrait" if aspect_ratio == "9:16" else "landscape",
+        nc_results = generate_per_sentence_ai_images(
+            prompts_per_slide=nc_prompts,
+            n_bg=0,  # No extra backgrounds needed — chart mode already has them
             target_size=(img_w, img_h),
         )
         web_fg_w = int(img_w * 0.84)
         web_fg_h = int(img_h * 0.35)
         for idx, (_, images) in zip(non_chart_indices, nc_results):
             if images:
-                best = images[0]
-                non_chart_fg[idx] = _prepare_fg_image(best, web_fg_w, web_fg_h)
-                best.close()
-                for extra in images[1:]:
-                    extra.close()
+                prepared = [_prepare_fg_image(img, web_fg_w, web_fg_h) for img in images]
+                non_chart_fg[idx] = prepared
+                for img in images:
+                    img.close()
             else:
-                for extra in images:
-                    extra.close()
+                non_chart_fg[idx] = []
         del nc_results
         gc.collect()
 
@@ -2102,9 +2107,10 @@ def build_video_with_chart_overlays(
             fg_list = [np.array(fg_img.convert("RGBA"))]
             fg_img.close()
         elif i in non_chart_fg:
-            fg_img = non_chart_fg[i]
-            fg_list = [np.array(fg_img.convert("RGBA"))]
-            fg_img.close()
+            # non_chart_fg[i] is a list of per-sentence fg images
+            for fg_img in non_chart_fg[i]:
+                fg_list.append(np.array(fg_img.convert("RGBA")))
+                fg_img.close()
 
         slide_visuals.append(("dynamic", treated_bgs, overlay, fg_list, role, []))
 
