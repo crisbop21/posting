@@ -41,7 +41,7 @@ from src.content.generator import (
     generate_image_prompts,
     generate_video_script,
     regenerate_video_script,
-    generate_tiktok_script_hooks,
+
     generate_tiktok_script,
     regenerate_tiktok_script,
     generate_image_search_queries,
@@ -512,8 +512,6 @@ for key, default in {
     "chart_image_paths": [],
     "chart_analyses": [],
     "chart_slide_mapping": [],
-    "tiktok_script_hooks": [],
-    "selected_tiktok_hook": None,
     "tiktok_script": None,
     "tiktok_video_path": None,
 }.items():
@@ -2301,7 +2299,7 @@ elif st.session_state.step == 6:
             st.subheader("TikTok Script")
             st.caption(
                 "Generate a standalone 130-160 word script optimized for "
-                "faceless TikTok finance videos, with hook framework selection."
+                "faceless TikTok finance videos, using your hook from Step 4."
             )
 
             _tt_topic = (
@@ -2312,126 +2310,59 @@ elif st.session_state.step == 6:
             _tt_angle = st.session_state.get("angle", "")
             _tt_bullets = st.session_state.get("verified_bullets", [])
 
-            # ── Step 1: Generate hook options ─────────────────────────
-            gen_col, clear_col = st.columns([3, 1])
-            with gen_col:
-                if st.button(
-                    "Generate 8 Hook Options",
-                    type="primary",
-                    use_container_width=True,
-                    key="gen_tiktok_hooks",
-                ):
-                    _require_api_key()
-                    with st.spinner("Generating hooks from 8 frameworks..."):
-                        try:
-                            hooks = generate_tiktok_script_hooks(
-                                topic=_tt_topic,
-                                verified_bullets=_tt_bullets,
-                                angle=_tt_angle,
-                            )
-                            st.session_state.tiktok_script_hooks = hooks
-                            st.session_state.selected_tiktok_hook = None
-                            st.session_state.tiktok_script = None
-                            st.session_state.tiktok_video_path = None
-                        except Exception as exc:
-                            st.error(f"Hook generation failed: {exc}")
-                    st.rerun()
-            with clear_col:
-                if st.session_state.tiktok_script_hooks and st.button(
-                    "Reset", use_container_width=True, key="clear_tiktok"
-                ):
-                    st.session_state.tiktok_script_hooks = []
-                    st.session_state.selected_tiktok_hook = None
-                    st.session_state.tiktok_script = None
-                    st.session_state.tiktok_video_path = None
-                    st.rerun()
+            # ── Reuse Step 4 hook (editable) ──────────────────────────
+            step4_hook = st.session_state.selected_hook or {}
+            default_hook_text = step4_hook.get("hook", "")
+            default_hook_style = step4_hook.get("style", "")
 
-            # ── Show hook options as selectable cards ──────────────────
-            if st.session_state.tiktok_script_hooks:
-                st.markdown("**Pick a hook**")
-                st.caption("Sorted by best data fit. Each uses a different framework.")
+            st.markdown("**Your hook** (from Step 4 — edit to customize for TikTok)")
+            tt_hook_text = st.text_input(
+                "Hook text",
+                value=default_hook_text,
+                key="tiktok_hook_input",
+                placeholder="e.g. Tesla just lost $80 billion in one week",
+            )
 
-                hooks = st.session_state.tiktok_script_hooks
-                for idx, h in enumerate(hooks):
-                    framework = h.get("framework", "Unknown")
-                    hook_text = h.get("hook", "")
-                    fit = h.get("fit_score", 0)
-                    data_used = h.get("data_used", "")
-                    is_selected = bool(
-                        st.session_state.selected_tiktok_hook
-                        and st.session_state.selected_tiktok_hook.get("hook") == hook_text
-                    )
-
-                    with st.container(border=True):
-                        hook_cols = st.columns([1, 9, 2])
-
-                        # Fit score badge (color-coded)
-                        fit_color = (
-                            "#22c55e" if fit >= 8 else "#f59e0b" if fit >= 5 else "#ef4444"
-                        )
-                        hook_cols[0].markdown(
-                            f"<div style='text-align:center;padding:8px 0;'>"
-                            f"<span style='font-size:24px;font-weight:700;color:{fit_color};'>{fit}</span>"
-                            f"<br><span style='font-size:11px;color:#888;'>/10</span></div>",
-                            unsafe_allow_html=True,
-                        )
-
-                        # Hook text + framework label
-                        hook_cols[1].markdown(f"**{hook_text}**")
-                        meta_parts = [f"Framework: {framework}"]
-                        if data_used:
-                            data_str = data_used if isinstance(data_used, str) else ", ".join(str(d) for d in data_used)
-                            meta_parts.append(f"Data: {data_str}")
-                        hook_cols[1].caption(" | ".join(meta_parts))
-
-                        # Select button
-                        if hook_cols[2].button(
-                            "Selected" if is_selected else "Use This",
-                            key=f"pick_tthook_{idx}",
-                            type="primary" if is_selected or idx == 0 else "secondary",
-                            use_container_width=True,
-                            disabled=is_selected,
-                        ):
-                            st.session_state.selected_tiktok_hook = h
-                            st.session_state.tiktok_script = None
-                            st.session_state.tiktok_video_path = None
-                            st.rerun()
-
-            # ── Step 2: Generate full script from chosen hook ─────────
-            if st.session_state.selected_tiktok_hook:
-                chosen = st.session_state.selected_tiktok_hook
-                st.divider()
-
-                if not st.session_state.tiktok_script:
-                    st.info(
-                        f"**{chosen.get('framework', '')}:** "
-                        f'"{chosen.get("hook", "")}"'
-                    )
+            if not tt_hook_text.strip():
+                st.warning("Enter a hook above or go back to Step 4 to pick one.")
+            else:
+                # ── Generate full script ──────────────────────────────
+                gen_col, reset_col = st.columns([3, 1])
+                with gen_col:
                     if st.button(
-                        "Generate Full Script",
+                        "Generate Script",
                         type="primary",
                         use_container_width=True,
                         key="gen_tiktok_full",
+                        disabled=not tt_hook_text.strip(),
                     ):
                         _require_api_key()
                         with st.spinner("Writing 130-160 word script..."):
                             try:
                                 script = generate_tiktok_script(
                                     topic=_tt_topic,
-                                    hook=chosen["hook"],
-                                    hook_framework=chosen.get("framework", ""),
+                                    hook=tt_hook_text.strip(),
+                                    hook_framework=default_hook_style,
                                     verified_bullets=_tt_bullets,
                                     angle=_tt_angle,
                                 )
                                 st.session_state.tiktok_script = script
+                                st.session_state.tiktok_video_path = None
                             except Exception as exc:
                                 st.error(f"Script generation failed: {exc}")
                         st.rerun()
+                with reset_col:
+                    if st.session_state.tiktok_script and st.button(
+                        "Reset", use_container_width=True, key="clear_tiktok"
+                    ):
+                        st.session_state.tiktok_script = None
+                        st.session_state.tiktok_video_path = None
+                        st.rerun()
 
-            # ── Step 3: Display, validate & edit the script ───────────
+            # ── Display, validate & edit the script ───────────────────
             if st.session_state.tiktok_script:
                 script = st.session_state.tiktok_script
-                chosen = st.session_state.selected_tiktok_hook
+                st.divider()
 
                 # Validation dashboard
                 word_count = script.get("word_count", 0)
@@ -2445,7 +2376,7 @@ elif st.session_state.step == 6:
                 v_cols[1].metric("Target", "130-160", delta="in range" if wc_ok else "out of range", delta_color="normal" if wc_ok else "inverse")
                 v_cols[2].metric("Abstract", f"{len(abstract_nouns)}/2", delta="pass" if abs_ok else "over limit", delta_color="normal" if abs_ok else "inverse")
                 v_cols[3].metric("Concrete", len(concrete_nouns))
-                v_cols[4].metric("Framework", chosen.get("framework", "—")[:18])
+                v_cols[4].metric("Hook Style", default_hook_style[:18] if default_hook_style else "Custom")
 
                 # Two-column layout: editor + preview
                 edit_col, preview_col = st.columns([1, 1])
@@ -2557,8 +2488,8 @@ elif st.session_state.step == 6:
                             try:
                                 new_script = regenerate_tiktok_script(
                                     topic=_tt_topic,
-                                    hook=chosen["hook"],
-                                    hook_framework=chosen.get("framework", ""),
+                                    hook=tt_hook_text.strip(),
+                                    hook_framework=default_hook_style,
                                     current_script=script,
                                     feedback=tiktok_feedback,
                                     verified_bullets=_tt_bullets,
@@ -2629,7 +2560,6 @@ elif st.session_state.step == 6:
                      "png_paths", "pptx_path", "mcp_alternatives",
                      "video_path", "video_scripts", "video_search_queries",
                      "video_search_results", "video_build_error",
-                     "tiktok_script_hooks", "selected_tiktok_hook",
                      "tiktok_script", "tiktok_video_path"]:
             if key in st.session_state:
                 st.session_state[key] = type(st.session_state[key])() if isinstance(st.session_state[key], (list, dict)) else None
