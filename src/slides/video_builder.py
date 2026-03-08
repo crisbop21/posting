@@ -1672,11 +1672,14 @@ def build_video_with_searched_images(
                 if role == "context" and i % 2 == 1:
                     motion = "pan_left"
 
+                # IMPORTANT: use tts_text (not script) for all timestamp-based
+                # lookups because char_starts/char_ends align to the stripped text.
+
                 # Extract voice-synced cue times (or None → even spacing)
                 # n_cards = n_fg - 1 (number of transitions between images)
                 n_fg_transitions = max(0, len(fg_prepared) - 1)
                 fg_change_times, bg_change_times = _extract_visual_cues(
-                    script=script,
+                    script=tts_text,
                     char_starts=char_starts,
                     char_ends=char_ends,
                     duration=duration,
@@ -1688,7 +1691,7 @@ def build_video_with_searched_images(
                 overlay_change_times = None
                 if len(slide_overlays) > 1 and char_starts:
                     overlay_change_times = _extract_sentence_times(
-                        script=script,
+                        script=tts_text,
                         char_ends=char_ends,
                         duration=duration,
                         n_overlays=len(slide_overlays),
@@ -1705,7 +1708,7 @@ def build_video_with_searched_images(
 
                 # Compute sentence-bounded display windows for fg images
                 fg_display_windows = _compute_fg_display_windows(
-                    script=script,
+                    script=tts_text,
                     char_starts=char_starts,
                     char_ends=char_ends,
                     duration=duration,
@@ -1718,7 +1721,7 @@ def build_video_with_searched_images(
                 ent_overlays = _build_entity_overlay_timing(
                     slide_entities=slide_ent,
                     entity_arrays=entity_arrays,
-                    script=script,
+                    script=tts_text,
                     char_starts=char_starts,
                     char_ends=char_ends,
                     pre_roll=pre_roll,
@@ -1789,15 +1792,6 @@ def build_video_with_searched_images(
                     if 0 < eo_t < duration - 0.3:
                         sfx = AudioFileClip(pop_sfx_path).with_start(eo_t)
                         audio_parts.append(sfx)
-
-                # Beat impact SFX on [beat] markers in the script
-                for bm in re.finditer(r'\[beat\]', script, re.IGNORECASE):
-                    bpos = bm.start()
-                    if bpos < len(char_starts) and char_starts:
-                        bt = char_starts[bpos]
-                        if 0.2 < bt < duration - 0.3:
-                            sfx = AudioFileClip(beat_sfx_path).with_start(bt)
-                            audio_parts.append(sfx)
 
                 if len(audio_parts) > 1:
                     mixed_audio = CompositeAudioClip(audio_parts)
@@ -2228,10 +2222,13 @@ def build_video_with_chart_overlays(
             slide_overlays = visual[5] if len(visual) > 5 else []
             motion = ROLE_MOTION.get(role, "drift")
 
+            # IMPORTANT: use tts_text (not script) for all timestamp-based
+            # lookups because char_starts/char_ends align to the stripped text.
+
             # Voice-synced cue times
             n_fg_transitions = max(0, len(fg_prepared) - 1)
             fg_change_times, bg_change_times = _extract_visual_cues(
-                script=script,
+                script=tts_text,
                 char_starts=char_starts,
                 char_ends=char_ends,
                 duration=duration,
@@ -2247,7 +2244,7 @@ def build_video_with_chart_overlays(
 
             # Compute sentence-bounded display windows for fg images
             fg_display_windows = _compute_fg_display_windows(
-                script=script,
+                script=tts_text,
                 char_starts=char_starts,
                 char_ends=char_ends,
                 duration=duration,
@@ -2260,7 +2257,7 @@ def build_video_with_chart_overlays(
             ent_overlays = _build_entity_overlay_timing(
                 slide_entities=slide_ent,
                 entity_arrays=entity_arrays,
-                script=script,
+                script=tts_text,
                 char_starts=char_starts,
                 char_ends=char_ends,
                 pre_roll=pre_roll,
