@@ -57,6 +57,7 @@ from src.slides.png_builder import build_style_alternatives
 from src.slides.video_builder import (
     build_video_with_searched_images,
     build_video_with_chart_overlays,
+    build_tiktok_video,
 )
 from src.slides.image_generator import (
     generate_slide_images,
@@ -514,6 +515,7 @@ for key, default in {
     "tiktok_script_hooks": [],
     "selected_tiktok_hook": None,
     "tiktok_script": None,
+    "tiktok_video_path": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -2461,9 +2463,65 @@ elif st.session_state.step == 6:
                             angle=angle,
                         )
                         st.session_state.tiktok_script = new_script
+                        st.session_state.tiktok_video_path = None
                     except Exception as exc:
                         st.error(f"Script regeneration failed: {exc}")
                 st.rerun()
+
+            # ── Step 4: Build TikTok Video ────────────────────────────
+            st.markdown("---")
+            st.markdown("**Build TikTok Video**")
+            st.caption(
+                "Generate a narrated MP4 from the script above using ElevenLabs TTS. "
+                "Requires an ElevenLabs API key in the sidebar."
+            )
+
+            if st.button(
+                "Build TikTok Video",
+                type="primary",
+                use_container_width=True,
+                key="build_tiktok_video",
+            ):
+                if not elevenlabs_key:
+                    st.error("Set your ElevenLabs API key in the sidebar to build a video.")
+                else:
+                    os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
+                    with st.spinner("Synthesizing audio and building video..."):
+                        try:
+                            topic = (
+                                st.session_state.selected_topic["title"]
+                                if st.session_state.selected_topic
+                                else ""
+                            )
+                            tiktok_vid_path = build_tiktok_video(
+                                script_text=edited_script,
+                                topic=topic,
+                                colors=colors,
+                                aspect_ratio=aspect_ratio_val,
+                                output_dir="./output",
+                                handle=handle,
+                                voice_id=elevenlabs_voice,
+                            )
+                            st.session_state.tiktok_video_path = tiktok_vid_path
+                        except Exception as exc:
+                            st.error(f"TikTok video build failed: {exc}")
+                    st.rerun()
+
+            # ── Show TikTok video result ──────────────────────────────
+            if st.session_state.tiktok_video_path and os.path.exists(
+                st.session_state.tiktok_video_path
+            ):
+                st.markdown("---")
+                st.video(st.session_state.tiktok_video_path)
+                st.download_button(
+                    label="Download TikTok MP4",
+                    data=_cached_read(st.session_state.tiktok_video_path),
+                    file_name="tiktok_script.mp4",
+                    mime="video/mp4",
+                    type="primary",
+                    use_container_width=True,
+                    key="tiktok_video_dl",
+                )
 
     # ── Back to edit hook/regenerate ───────────────────────────────────────
     st.divider()
@@ -2474,7 +2532,7 @@ elif st.session_state.step == 6:
                      "video_path", "video_scripts", "video_search_queries",
                      "video_search_results", "video_build_error",
                      "tiktok_script_hooks", "selected_tiktok_hook",
-                     "tiktok_script"]:
+                     "tiktok_script", "tiktok_video_path"]:
             if key in st.session_state:
                 st.session_state[key] = type(st.session_state[key])() if isinstance(st.session_state[key], (list, dict)) else None
         _read_file_bytes.clear()
