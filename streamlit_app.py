@@ -1177,6 +1177,7 @@ elif st.session_state.step == 4:
 
         if st.button("Back", key="hook_back"):
             st.session_state.hook_options = []
+            st.session_state.selected_hook = None
             st.session_state.step = 3
             st.rerun()
 
@@ -1433,7 +1434,6 @@ elif st.session_state.step == 4:
             )
             if not isinstance(conclusion_result, dict):
                 conclusion_result = {"corrected_slides": slides}
-            st.session_state.conclusion_report = conclusion_result
             logic_valid = conclusion_result.get("logic_valid", True)
             if logic_valid:
                 placeholders[4].markdown("✅ **Conclusion check** — Logic sound")
@@ -1442,6 +1442,9 @@ elif st.session_state.step == 4:
                 placeholders[4].markdown(f"✅ **Conclusion check** — Fixed {len(issues)} logic gap(s)")
             slides = _safe_get_slides(conclusion_result, slides)
             slides = enforce_hook_and_count(slides, hook_text, slide_count)
+            # Update verdict_slide to reflect actual position after reorder
+            conclusion_result["verdict_slide"] = max(len(slides) - 1, 1)
+            st.session_state.conclusion_report = conclusion_result
 
             # 6. Narrative coherence
             placeholders[5].markdown("🔄 **Coherence check** — _Analyzing narrative flow..._")
@@ -2012,6 +2015,20 @@ elif st.session_state.step == 6:
 
             live_slides = _get_live_slides()
 
+            # Detect stale data: if slides changed since scripts/mapping were generated
+            import hashlib as _hashlib
+            _slides_hash = _hashlib.md5(str(live_slides).encode()).hexdigest()
+            _slides_changed = (
+                st.session_state.get("_video_scripts_slides_hash")
+                and st.session_state["_video_scripts_slides_hash"] != _slides_hash
+            )
+            if _slides_changed:
+                if st.session_state.video_scripts:
+                    st.warning("Slides have changed since scripts were generated. Regenerate scripts to match.")
+                # Invalidate chart mapping when slide content changes
+                if st.session_state.get("chart_slide_mapping"):
+                    st.session_state.chart_slide_mapping = []
+
             # ── Step 1: Generate voiceover script ──────────────────────────
             st.markdown("---")
             st.markdown("**Step 1 — Voiceover Script**")
@@ -2028,6 +2045,7 @@ elif st.session_state.step == 6:
                                 slides=live_slides, topic=topic, angle=angle,
                             )
                             st.session_state.video_scripts = scripts
+                            st.session_state["_video_scripts_slides_hash"] = _slides_hash
                             # Clear previous video when regenerating scripts
                             st.session_state.video_path = None
                             st.session_state.video_search_queries = []
@@ -2088,6 +2106,7 @@ elif st.session_state.step == 6:
                                 angle=angle,
                             )
                             st.session_state.video_scripts = new_scripts
+                            st.session_state["_video_scripts_slides_hash"] = _slides_hash
                             st.session_state.video_path = None
                             st.session_state.video_search_queries = []
                             st.session_state.video_search_results = {}
