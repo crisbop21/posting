@@ -1805,7 +1805,8 @@ def generate_video_script(
     engine while the viewer looks at the slide.
     """
     slide_text = json.dumps(slides, indent=2)
-    prompt = f"""You are a top-tier voiceover scriptwriter for short-form finance videos on TikTok and Instagram Reels.
+    prompt = f"""You are a senior financial content strategist and scriptwriter for a faceless TikTok finance channel.
+Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging. No jargon without translation.
 
 Topic: {topic or 'finance'}
 Angle: {angle or 'general'}
@@ -1815,34 +1816,29 @@ Here are the slides for the video:
 
 Write a compelling voiceover script for EACH slide. Follow these rules precisely:
 
-STRUCTURE & PACING:
+{TIKTOK_SCRIPT_RULES}
+
+STRUCTURE & PACING (per slide):
 1. Each slide's narration: 2-4 sentences (20-40 words). Vary sentence length for rhythm — mix punchy 3-word statements with longer explanations.
 2. Slide 1 (hook): Open with a provocative question, a surprising contrast, or a bold claim that makes scrollers stop. Never "hey guys" or "welcome to". Example patterns: "Most people think X... they're wrong.", "Here's what nobody tells you about X."
 3. Middle slides: Each should deliver ONE clear insight. Build tension — set up "the problem" before "the answer". Use cause → effect structure.
 4. Last slide (CTA): End with a specific, natural call to action. Don't just say "follow" — give them a reason. Example: "Follow for the next breakdown" or "Comment which one surprised you most."
 5. The script must flow as one continuous story across all slides — each slide should feel like the next logical beat.
+6. The ENTIRE narration across all slides combined should target 130-160 words total.
 
 3-SECOND HOOK RULE (critical for TikTok retention):
-6. The FIRST sentence of slide 1 MUST be deliverable in under 3 seconds (~8-12 words max). This is the audio hook.
-7. Front-load the most surprising or compelling word in that first sentence. The brain decides to stay or scroll in this window.
-8. After the audio hook, add a brief beat ("...") before the follow-up. This creates anticipation.
-
-TONE & DELIVERY:
-9. Sound like a sharp analyst briefing a friend, not a textbook or a hype influencer.
-10. Use power words that create urgency: "quietly", "just happened", "most people missed", "here's the catch".
-11. Include natural speech markers for TTS: brief pauses (use "..."), rhetorical questions, emphasis through repetition.
-12. Vary your openings — don't start every slide the same way. Mix statements, questions, and "here's why" transitions.
+7. The FIRST sentence of slide 1 MUST be deliverable in under 3 seconds (~8-12 words max). This is the audio hook.
+8. Front-load the most surprising or compelling word in that first sentence. The brain decides to stay or scroll in this window.
+9. After the audio hook, add a brief beat ("...") before the follow-up. This creates anticipation.
 
 SOUND-VISUAL SYNC CUES:
-13. When mentioning a key number or reveal, add "[beat]" before it so the video builder can sync a sound effect. Example: "and the result? [beat] a 40% drop."
-14. Use rhythm — short-long-short sentence patterns create natural audio interest that keeps viewers engaged.
-15. 88% of TikTok users say sound is vital to their experience. Write scripts that sound compelling even without visuals.
+10. When mentioning a key number or reveal, add "[beat]" before it so the video builder can sync a sound effect. Example: "and the result? [beat] a 40% drop."
+11. Use rhythm — short-long-short sentence patterns create natural audio interest that keeps viewers engaged.
 
-FACTUAL ACCURACY (NON-NEGOTIABLE):
-10. ONLY use numbers, percentages, prices, and statistics that appear in the slide content. NEVER invent or estimate data.
-11. If a slide uses directional language ("rising sharply", "near highs"), keep it directional in the script. Do NOT convert vague language into specific numbers.
-12. You may rephrase and add context, but the underlying facts must come exclusively from the slides. When in doubt, be vaguer, not more specific.
-13. Add "why it matters" context — explain implications and connect dots — but never fabricate the supporting data.
+FACTUAL ACCURACY (overrides all other rules):
+12. ONLY use numbers, percentages, prices, and statistics that appear in the slide content. NEVER invent or estimate data.
+13. If a slide uses directional language ("rising sharply", "near highs"), keep it directional in the script. Do NOT convert vague language into specific numbers.
+14. You may rephrase and add context, but the underlying facts must come exclusively from the slides. When in doubt, be vaguer, not more specific.
 
 Return your response as a JSON array of strings, one per slide:
 ["script for slide 1", "script for slide 2", ...]
@@ -1884,7 +1880,8 @@ def regenerate_video_script(
     """
     slide_text = json.dumps(slides, indent=2)
     scripts_text = json.dumps(current_scripts, indent=2)
-    prompt = f"""You are a top-tier voiceover scriptwriter for short-form finance videos on TikTok and Instagram Reels.
+    prompt = f"""You are a senior financial content strategist and scriptwriter for a faceless TikTok finance channel.
+Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging. No jargon without translation.
 
 Topic: {topic or 'finance'}
 Angle: {angle or 'general'}
@@ -1900,23 +1897,24 @@ The user has provided the following feedback on the scripts:
 
 Rewrite the voiceover scripts incorporating the user's feedback. Follow these rules:
 
-STRUCTURE & PACING:
+{TIKTOK_SCRIPT_RULES}
+
+STRUCTURE & PACING (per slide):
 1. Each slide's narration: 2-4 sentences (20-40 words). Vary sentence length for rhythm.
-2. Slide 1 (hook): Open with a provocative question, surprising contrast, or bold claim.
+2. Slide 1 (hook): Open with a provocative question, surprising contrast, or bold claim. 8-12 words max for the first sentence (3-second hook rule).
 3. Middle slides: Each should deliver ONE clear insight with cause → effect structure.
-4. Last slide (CTA): End with a specific, natural call to action.
+4. Last slide (CTA): End with a specific, natural call to action. ONE action only.
 5. The script must flow as one continuous story across all slides.
+6. The ENTIRE narration across all slides combined should target 130-160 words total.
 
-TONE & DELIVERY:
-6. Sound like a sharp analyst briefing a friend.
-7. Use power words that create urgency.
-8. Include natural speech markers for TTS: brief pauses (use "..."), rhetorical questions.
-9. Vary your openings.
+SOUND-VISUAL SYNC CUES:
+7. When mentioning a key number or reveal, add "[beat]" before it for sound effect sync.
+8. Use rhythm — short-long-short sentence patterns create natural audio interest.
 
-FACTUAL ACCURACY (NON-NEGOTIABLE):
-10. ONLY use numbers, percentages, prices, and statistics that appear in the slide content.
-11. If a slide uses directional language, keep it directional. Do NOT invent specific numbers.
-12. You may rephrase and add context, but facts must come exclusively from the slides.
+FACTUAL ACCURACY (overrides all other rules):
+9. ONLY use numbers, percentages, prices, and statistics that appear in the slide content.
+10. If a slide uses directional language, keep it directional. Do NOT invent specific numbers.
+11. You may rephrase and add context, but facts must come exclusively from the slides.
 
 IMPORTANT: Address the user's feedback while maintaining quality and factual accuracy.
 
