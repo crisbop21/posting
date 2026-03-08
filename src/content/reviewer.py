@@ -55,6 +55,8 @@ Please do the following:
    - Clarity: Is the message instantly understandable?
    - Engagement: Would someone share this or save it?
    - Visual text balance: Is the text concise enough for a slide?
+   - Sound-off readability: Would a viewer scrolling with sound off understand the message from text alone?
+   - 3-second scan: Can the slide's key message be absorbed in under 3 seconds?
 
 2. IDENTIFY the weakest slide(s) and explain why.
 
@@ -70,6 +72,8 @@ Please do the following:
    - Footer: short source attribution only (e.g. "source: Bloomberg"). NO hashtags, NO emojis
    - You MUST return EXACTLY {len(current_slides)} slides, same count as the input
    - Slide 1 title MUST remain the hook EXACTLY as written. Do NOT rephrase it
+   - Slide 1 MUST pass the 3-second test: can a scroller read and understand it in under 3 seconds?
+   - Every slide must work with sound off — the text must carry the full message visually
 
 FACTUAL INTEGRITY (critical, overrides engagement goals):
    - NEVER change, replace, or introduce specific numbers, prices, percentages, or dollar amounts.
@@ -84,7 +88,7 @@ Return your response as JSON with this structure:
 {{
   "review": {{
     "scores": [
-      {{"slide": 1, "hook": 8, "clarity": 7, "engagement": 6, "balance": 8, "notes": "..."}},
+      {{"slide": 1, "hook": 8, "clarity": 7, "engagement": 6, "balance": 8, "sound_off": 7, "three_sec": 8, "notes": "..."}},
       ...
     ],
     "weakest": "Slide 3: the body text is too vague...",

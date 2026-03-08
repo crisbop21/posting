@@ -47,7 +47,20 @@ content:
   style_notes: >
     Use short punchy sentences. Include relevant numbers and data points.
     Make it feel urgent and timely. Use hooks that grab attention.
-    Each slide should be digestible in under 5 seconds of reading.
+    Each slide should be digestible in under 3 seconds of reading.
+    Front-load the most surprising word or number in each sentence.
+    Write for sound-off viewers: text must carry the full message visually.
+
+  # TikTok attention optimization
+  attention:
+    # Enforce 3-second hook rule: slide 1 text must be readable in <3 seconds
+    three_second_hook: true
+    # Generate visual_hint fields on each slide for design guidance
+    visual_hints: true
+    # Generate sound mood suggestions in TikTok metadata
+    sound_mood: true
+    # Generate SEO hook keywords for on-screen text discoverability
+    hook_keywords: true
 
 # Canva integration (optional, for alternative AI-designed slides)
 # Get credentials at https://www.canva.dev/console → Create integration
@@ -71,6 +84,10 @@ video:
   # Ken Burns effect: animate background images with zoom/pan motion
   # per slide role (hook=zoom-in, context=pan, payoff=zoom-out, cta=drift)
   ken_burns: true
+  # Sound effects volume (0.0 to 1.0) — whoosh, pop, reveal synced to visual changes
+  sfx_volume: 0.6
+  # Beat sync: align visual transitions to voiceover rhythm cues marked with [beat]
+  beat_sync: true
 
 # AI image generation (optional, requires Replicate API token)
 # Uses Flux Schnell via Replicate — ~$0.003 per image, ~2-4s per generation
