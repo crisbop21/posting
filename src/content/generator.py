@@ -37,6 +37,12 @@ TOP 10 HOOK FORMULAS (use these structural templates):
 
 10. PANIC REVERSAL: "[Stock/Market] is down [X%] you panic sell. Here is the [time] that save you."
     Why it works: addresses fear directly and promises a calming data point.
+
+11. PATTERN INTERRUPT: "wait. [unexpected fact about topic]. nobody is talking about this."
+    Why it works: the "wait" + lowercase + unexpected fact stops the scroll mid-thumb. Breaks the expected pattern of finance content.
+
+12. FOMO TRIGGER: "[X] people just [action] on [topic]. most of you are still doing [wrong thing]."
+    Why it works: combines social proof with a gap between "them" and "you", creating urgency to close the knowledge gap.
 """
 
 HOOK_RULES = """
@@ -636,8 +642,8 @@ VERIFIED DATA AVAILABLE (use ONLY these numbers in your hooks):
 
 {HOOK_RULES}
 
-Generate exactly 10 different hook options for the opening slide of a slide deck on this topic.
-Each hook MUST follow one of the 10 structural formulas above. Use a different formula for each hook.
+Generate exactly 12 different hook options for the opening slide of a slide deck on this topic.
+Each hook MUST follow one of the 12 structural formulas above. Use a different formula for each hook.
 Every hook MUST be 11-18 words long (the sweet spot).
 Every hook MUST use "you/your" direct address where possible.
 Every hook MUST create an open loop (promise a reveal).
@@ -650,9 +656,9 @@ FACTUAL ACCURACY (critical):
 
 Also evaluate which hook formulas are the BEST FIT for the available data and rank them.
 
-Return your response as a JSON array of 10 objects, each with:
+Return your response as a JSON array of 12 objects, each with:
 - "hook": The hook text (11-18 words, using numbers from verified data only)
-- "style": The formula name used (e.g. "Data Dig", "Comparison Shock", etc.)
+- "style": The formula name used (e.g. "Data Dig", "Comparison Shock", "Pattern Interrupt", etc.)
 - "fit_score": 1-10 rating of how well this formula fits the available data (10 = perfect fit)
 - "data_used": which verified bullet(s) this hook references
 
@@ -757,7 +763,8 @@ STORYTELLING AND COHESION:
 Return your response as a JSON array of slide objects. Each slide must have:
 - "title": The headline (under 15 words, lowercase except tickers, numbers, proper nouns, and acronyms)
 - "body": One sentence of content (under 15 words, include a verified number if available)
-- "footer": Short source attribution only (e.g. "source: Bloomberg"). NO hashtags, NO emojis. Leave blank if no source.{claims_instruction}
+- "footer": Short source attribution only (e.g. "source: Bloomberg"). NO hashtags, NO emojis. Leave blank if no source.
+- "visual_hint": A brief design direction for this slide (e.g. "bold red text on dark bg, pattern interrupt", "highlight the percentage in accent color", "clean layout with centered question"). This guides the visual builder to make each slide attention-grabbing. Slide 1 should always suggest a scroll-stopping visual.{claims_instruction}
 {claims_schema}
 Return ONLY the JSON array, no other text."""
 

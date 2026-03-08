@@ -1162,9 +1162,10 @@ def build_video(
         import gc
 
         for i, (png_path, script) in enumerate(zip(png_paths, scripts)):
-            # Generate audio
+            # Generate audio — strip [beat] markers so they aren't spoken
+            tts_text = re.sub(r'\s*\[beat\]\s*', ' ', script, flags=re.IGNORECASE).strip()
             audio_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
-            audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
+            audio_bytes = synthesize_speech(text=tts_text, voice_id=voice_id)
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
             del audio_bytes
@@ -1277,8 +1278,9 @@ def build_video_with_ai_images(
         slide_clips = []
 
         for i, (png_path, script) in enumerate(zip(png_paths, scripts)):
+            tts_text = re.sub(r'\s*\[beat\]\s*', ' ', script, flags=re.IGNORECASE).strip()
             audio_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
-            audio_bytes = synthesize_speech(text=script, voice_id=voice_id)
+            audio_bytes = synthesize_speech(text=tts_text, voice_id=voice_id)
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
             del audio_bytes
@@ -1644,10 +1646,12 @@ def build_video_with_searched_images(
 
         for i, (visual, script) in enumerate(zip(slide_visuals, scripts)):
             # Synthesize voiceover WITH character timestamps
+            # Strip [beat] markers so they aren't spoken aloud by TTS
+            tts_text = re.sub(r'\s*\[beat\]\s*', ' ', script, flags=re.IGNORECASE).strip()
             vo_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
             audio_bytes, char_starts, char_ends = (
                 synthesize_speech_with_timestamps(
-                    text=script, voice_id=voice_id,
+                    text=tts_text, voice_id=voice_id,
                 )
             )
             with open(vo_path, "wb") as f:
@@ -2206,9 +2210,11 @@ def build_video_with_chart_overlays(
         slide_clips = []
 
         for i, (visual, script) in enumerate(zip(slide_visuals, scripts)):
+            # Strip [beat] markers so they aren't spoken aloud by TTS
+            tts_text = re.sub(r'\s*\[beat\]\s*', ' ', script, flags=re.IGNORECASE).strip()
             vo_path = os.path.join(tmp_dir, f"slide_{i:02d}.mp3")
             audio_bytes, char_starts, char_ends = (
-                synthesize_speech_with_timestamps(text=script, voice_id=voice_id)
+                synthesize_speech_with_timestamps(text=tts_text, voice_id=voice_id)
             )
             with open(vo_path, "wb") as f:
                 f.write(audio_bytes)

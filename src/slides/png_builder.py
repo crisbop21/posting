@@ -8,6 +8,7 @@ import io
 import math
 import os
 import random
+import re
 import textwrap
 from datetime import datetime
 
@@ -480,6 +481,75 @@ def _draw_text_with_shadow(
     draw.text(xy, text, fill=fill, font=font)
 
 
+# ── Number highlighting helper ─────────────────────────────────────────────
+
+# Regex matching numbers, percentages, dollar amounts, and tickers like $AAPL
+_NUMBER_RE = re.compile(
+    r'(?:\$[\d,.]+[BMKTbmkt]?%?'      # $123, $1.2B, $45K
+    r'|[\d,.]+%'                        # 42%, 1,200%
+    r'|\d[\d,.]*[xXBMKTbmkt])'         # 10x, 1.5B, 200M
+)
+
+
+def _draw_text_with_number_highlight(
+    draw: ImageDraw.Draw,
+    xy: tuple,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple,
+    accent: tuple,
+):
+    """Draw text, rendering numbers/percentages in accent color for emphasis."""
+    x, y = xy
+    last_end = 0
+    for m in _NUMBER_RE.finditer(text):
+        # Draw text before the number in normal color
+        prefix = text[last_end:m.start()]
+        if prefix:
+            draw.text((x, y), prefix, fill=fill, font=font)
+            bbox = font.getbbox(prefix)
+            x += bbox[2] - bbox[0]
+        # Draw the number in accent color
+        num_text = m.group()
+        draw.text((x, y), num_text, fill=accent, font=font)
+        bbox = font.getbbox(num_text)
+        x += bbox[2] - bbox[0]
+        last_end = m.end()
+    # Draw remaining text
+    suffix = text[last_end:]
+    if suffix:
+        draw.text((x, y), suffix, fill=fill, font=font)
+
+
+def _draw_text_with_number_highlight_shadow(
+    img: Image.Image,
+    xy: tuple,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    fill: tuple,
+    accent: tuple,
+    shadow_color: tuple = (0, 0, 0),
+    shadow_offset: int = 2,
+):
+    """Draw text with shadow, rendering numbers in accent color."""
+    x, y = xy
+    last_end = 0
+    for m in _NUMBER_RE.finditer(text):
+        prefix = text[last_end:m.start()]
+        if prefix:
+            _draw_text_with_shadow(img, (x, y), prefix, font, fill, shadow_color, shadow_offset)
+            bbox = font.getbbox(prefix)
+            x += bbox[2] - bbox[0]
+        num_text = m.group()
+        _draw_text_with_shadow(img, (x, y), num_text, font, accent, shadow_color, shadow_offset)
+        bbox = font.getbbox(num_text)
+        x += bbox[2] - bbox[0]
+        last_end = m.end()
+    suffix = text[last_end:]
+    if suffix:
+        _draw_text_with_shadow(img, (x, y), suffix, font, fill, shadow_color, shadow_offset)
+
+
 # ── Vignette helper ─────────────────────────────────────────────────────────
 
 
@@ -687,6 +757,8 @@ def build_pngs(
         img = Image.new("RGB", (img_w, img_h), bg)
         draw = ImageDraw.Draw(img)
 
+        is_hook = idx == 0
+
         # -- Left accent bar --
         draw.rectangle([0, 0, accent_bar_w, img_h], fill=accent_c)
 
@@ -707,12 +779,35 @@ def build_pngs(
 
         # -- Title --
         title_text = slide_data.get("title", "")
-        title_size = _calc_title_font_size(title_text, content_w)
+        # Hook slide gets a larger title for scroll-stopping impact
+        base_title_size = 100 if is_hook else 90
+        title_size = _calc_title_font_size(title_text, content_w, base_size=base_title_size)
         title_font = _load_font("sans_bold", title_size)
         title_lines = _wrap_text(title_text, title_font, content_w)
 
-        title_y = int(img_h * 0.165)
+        title_y = int(img_h * 0.14) if is_hook else int(img_h * 0.165)
         title_line_h = int(title_size * 1.35)
+
+        # Hook slide: accent glow behind title for pattern interrupt
+        if is_hook:
+            glow = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
+            glow_draw = ImageDraw.Draw(glow)
+            glow_y = title_y
+            for line in title_lines:
+                glow_draw.text(
+                    (margin, glow_y), line,
+                    fill=(*accent_c, 50), font=title_font,
+                )
+                glow_y += title_line_h
+            glow = glow.filter(ImageFilter.GaussianBlur(radius=18))
+            img.paste(
+                Image.alpha_composite(
+                    Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0)), glow
+                ).convert("RGB"),
+                mask=glow.split()[3],
+            )
+            draw = ImageDraw.Draw(img)
+
         for line in title_lines:
             draw.text((margin, title_y), line, fill=title_c, font=title_font)
             title_y += title_line_h
@@ -724,14 +819,16 @@ def build_pngs(
             fill=muted_c,
         )
 
-        # -- Body --
+        # -- Body (with number highlighting) --
         body_text = slide_data.get("body", "")
         body_font = _load_font("serif", 64)
         body_lines = _wrap_text(body_text, body_font, content_w)
         body_y = divider_y + int(img_h * 0.02)
         body_line_h = int(64 * 1.45)
         for line in body_lines:
-            draw.text((margin, body_y), line, fill=body_c, font=body_font)
+            _draw_text_with_number_highlight(
+                draw, (margin, body_y), line, body_font, body_c, accent_c,
+            )
             body_y += body_line_h
 
         # -- Handle at bottom --
@@ -776,6 +873,7 @@ def _render_styled_slide(
     muted_c = tuple(max(0, min(255, c + (40 if is_dark else -40))) for c in bg)
     shadow_c = (0, 0, 0) if is_dark else (100, 100, 100)
 
+    is_hook = idx == 0
     margin = int(img_w * 0.12)
     content_w = img_w - 2 * margin
     accent_bar_w = max(int(img_w * 0.007), 4)
@@ -813,12 +911,34 @@ def _render_styled_slide(
     # -- Title --
     title_text = slide_data.get("title", "")
     title_font_style = preset.get("title_font", "sans_bold")
-    title_size = _calc_title_font_size(title_text, content_w)
+    # Hook slide gets a larger title for scroll-stopping impact
+    base_title_size = 100 if is_hook else 90
+    title_size = _calc_title_font_size(title_text, content_w, base_size=base_title_size)
     title_font = _load_font(title_font_style, title_size)
     title_lines = _wrap_text(title_text, title_font, content_w)
 
-    title_y = int(img_h * 0.165)
+    title_y = int(img_h * 0.14) if is_hook else int(img_h * 0.165)
     title_line_h = int(title_size * 1.35)
+
+    # Hook slide: accent glow behind title for pattern interrupt
+    if is_hook:
+        glow = Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow)
+        glow_y = title_y
+        for line in title_lines:
+            glow_draw.text(
+                (margin, glow_y), line,
+                fill=(*accent_c, 50), font=title_font,
+            )
+            glow_y += title_line_h
+        glow = glow.filter(ImageFilter.GaussianBlur(radius=18))
+        img.paste(
+            Image.alpha_composite(
+                Image.new("RGBA", (img_w, img_h), (0, 0, 0, 0)), glow
+            ).convert("RGB"),
+            mask=glow.split()[3],
+        )
+
     for line in title_lines:
         _draw_text_with_shadow(
             img, (margin, title_y), line, title_font, title_c, shadow_c, 3,
@@ -839,7 +959,7 @@ def _render_styled_slide(
             fill=muted_c,
         )
 
-    # -- Body --
+    # -- Body (with number highlighting) --
     body_text = slide_data.get("body", "")
     body_font_style = preset.get("body_font", "serif")
     body_size = preset.get("body_size", 64)
@@ -848,8 +968,8 @@ def _render_styled_slide(
     body_y = divider_y + int(img_h * 0.025)
     body_line_h = int(body_size * 1.45)
     for line in body_lines:
-        _draw_text_with_shadow(
-            img, (margin, body_y), line, body_font, body_c, shadow_c, 2,
+        _draw_text_with_number_highlight_shadow(
+            img, (margin, body_y), line, body_font, body_c, accent_c, shadow_c, 2,
         )
         body_y += body_line_h
 
