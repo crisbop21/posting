@@ -98,13 +98,7 @@ STORYTELLING (critical):
 - Use storytelling frameworks where they fit: "Problem → Cause → Fix", "Myth → Test → Truth",
   or "Result First → Steps → Mistakes to Avoid".
 
-VISUAL ATTENTION (slide design hints):
-- For each slide, include a "visual_hint" field with a brief direction for the visual design.
-- Slide 1 (Hook): suggest a pattern-interrupt visual — bold contrasting text, unexpected color pop,
-  or a surprising image that stops the scroll. This is the most important slide visually.
-- Data slides: suggest visual emphasis for the key number or comparison (e.g. "highlight the percentage
-  in accent color", "use a before/after split layout").
-- CTA slide: suggest a clean, inviting layout that draws the eye to the question.
+VISUAL ATTENTION:
 - Text overlays must be readable in under 3 seconds per slide. Use bold, high-contrast fonts.
 - Many viewers watch with sound off initially — the visual must carry the message standalone.
 

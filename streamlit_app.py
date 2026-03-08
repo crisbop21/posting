@@ -1651,6 +1651,18 @@ elif st.session_state.step == 6:
             else:
                 st.caption(f":red[{char_count} characters] (below 200 minimum)")
 
+            # Sound mood and SEO keyword suggestions
+            sound_mood = metadata.get("sound_mood")
+            hook_keywords = metadata.get("hook_keywords")
+            if sound_mood or hook_keywords:
+                hint_cols = st.columns(2)
+                if sound_mood:
+                    hint_cols[0].metric("Sound Mood", sound_mood)
+                if hook_keywords:
+                    hint_cols[1].markdown(
+                        "**Hook Keywords (SEO):** " + ", ".join(f"`{k}`" for k in hook_keywords)
+                    )
+
     # ══════════════════════════════════════════════════════════════════════
     # TAB: Slides (PPTX + PNG + Alternatives)
     # ══════════════════════════════════════════════════════════════════════
