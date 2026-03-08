@@ -1330,7 +1330,7 @@ elif st.session_state.step == 4:
             placeholders[0].markdown("🔄 **Slide generation** — _Creating fact-grounded slides..._")
             slides = generate_slide_content(
                 topic=topic["title"],
-                angle=angle or topic["description"],
+                angle=st.session_state.get("angle", "") or topic["description"],
                 hook=hook_text,
                 slide_count=slide_count,
                 tone=tone,
@@ -1463,7 +1463,7 @@ elif st.session_state.step == 4:
             value_result = add_value_pass(
                 slides=slides,
                 topic=topic["title"],
-                angle=angle or topic["description"],
+                angle=st.session_state.get("angle", "") or topic["description"],
                 audience=audience,
                 hook=hook_text,
             )
@@ -1484,7 +1484,7 @@ elif st.session_state.step == 4:
             metadata = generate_tiktok_metadata(
                 slides=slides,
                 topic=topic["title"],
-                angle=angle or topic["description"],
+                angle=st.session_state.get("angle", "") or topic["description"],
                 hook=hook["hook"],
             )
             st.session_state.tiktok_metadata = metadata
