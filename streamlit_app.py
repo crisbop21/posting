@@ -524,21 +524,22 @@ if st.session_state.step > 6:
 
 # ── Step indicators (clickable for completed steps) ──────────────────────────
 
-step_labels = [
-    "1. Topic",
-    "2. Data",
-    "3. Angle",
-    "4. Hook",
-    "5. Generate",
-    "6. Studio",
+# Steps 4+5 merged: step 5 is skipped internally
+_NAV_STEPS = [
+    (1, "1. Topic"),
+    (2, "2. Data"),
+    (3, "3. Angle"),
+    (4, "4. Hook & Slides"),
+    (6, "5. Studio"),
 ]
 
 current = st.session_state.step
-cols = st.columns(len(step_labels))
-for i, label in enumerate(step_labels):
-    step_num = i + 1
-    with cols[i]:
-        if step_num < current:
+# Map step 5 → treat as step 4 for nav display (merged)
+nav_current = 4 if current == 5 else current
+cols = st.columns(len(_NAV_STEPS))
+for col_idx, (step_num, label) in enumerate(_NAV_STEPS):
+    with cols[col_idx]:
+        if step_num < nav_current:
             if st.button(
                 f"✓ {label}",
                 key=f"nav_{step_num}",
@@ -546,7 +547,7 @@ for i, label in enumerate(step_labels):
             ):
                 st.session_state.step = step_num
                 st.rerun()
-        elif step_num == current:
+        elif step_num == nav_current:
             st.markdown(
                 f"<div style='background:#1f6feb;color:white;text-align:center;"
                 f"padding:8px 4px;border-radius:8px;font-weight:600;font-size:14px;'>"
@@ -1123,14 +1124,15 @@ elif st.session_state.step == 3:
         st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4: Choose a Hook (card-based selection)
+# STEP 4: Choose a Hook → Generate & Verify Slides (merged)
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif st.session_state.step == 4:
-    st.header("Step 4: Choose a Hook")
+    st.header("Step 4: Hook & Slides")
     topic = st.session_state.selected_topic
     bullets = st.session_state.verified_bullets
     current_angle = st.session_state.angle
+    research_text = st.session_state.research_text
 
     angle_display = f"**Angle:** {current_angle}  \n" if current_angle else ""
     st.info(
@@ -1139,6 +1141,7 @@ elif st.session_state.step == 4:
         f"**Data points:** {len(bullets)} verified"
     )
 
+    # ── Generate hooks if not yet available ────────────────────────────────
     if not st.session_state.hook_options:
         if demo_mode:
             import time as _time
@@ -1166,64 +1169,56 @@ elif st.session_state.step == 4:
             st.error(f"API error: {exc}")
             st.stop()
 
-    hooks = st.session_state.hook_options
-    st.subheader("Pick the hook for your opening slide")
-    st.caption("Sorted by best fit to your data")
+    # ── Hook selection (only show if slides not yet generated) ─────────────
+    if not st.session_state.selected_hook:
+        hooks = st.session_state.hook_options
+        st.subheader("Pick the hook for your opening slide")
+        st.caption("Sorted by best fit to your data. Selecting a hook immediately generates slides.")
 
-    if st.button("Back", key="hook_back"):
-        st.session_state.hook_options = []
-        st.session_state.step = 3
-        st.rerun()
+        if st.button("Back", key="hook_back"):
+            st.session_state.hook_options = []
+            st.session_state.step = 3
+            st.rerun()
 
-    for i, h in enumerate(hooks):
-        fit = h.get("fit_score", 0)
-        with st.container(border=True):
-            hook_cols = st.columns([1, 9, 2])
+        for i, h in enumerate(hooks):
+            fit = h.get("fit_score", 0)
+            with st.container(border=True):
+                hook_cols = st.columns([1, 9, 2])
 
-            # Fit score badge
-            fit_color = "#22c55e" if fit >= 8 else "#f59e0b" if fit >= 5 else "#ef4444"
-            hook_cols[0].markdown(
-                f"<div style='text-align:center;padding:8px 0;'>"
-                f"<span style='font-size:24px;font-weight:700;color:{fit_color};'>{fit}</span>"
-                f"<br><span style='font-size:11px;color:#888;'>/10</span></div>",
-                unsafe_allow_html=True,
-            )
+                # Fit score badge
+                fit_color = "#22c55e" if fit >= 8 else "#f59e0b" if fit >= 5 else "#ef4444"
+                hook_cols[0].markdown(
+                    f"<div style='text-align:center;padding:8px 0;'>"
+                    f"<span style='font-size:24px;font-weight:700;color:{fit_color};'>{fit}</span>"
+                    f"<br><span style='font-size:11px;color:#888;'>/10</span></div>",
+                    unsafe_allow_html=True,
+                )
 
-            # Hook text + metadata
-            hook_cols[1].markdown(f"**{h['hook']}**")
-            meta_parts = [f"Style: {h['style']}"]
-            if h.get("data_used"):
-                meta_parts.append(f"Data: {h['data_used']}")
-            hook_cols[1].caption(" | ".join(meta_parts))
+                # Hook text + metadata
+                hook_cols[1].markdown(f"**{h['hook']}**")
+                meta_parts = [f"Style: {h['style']}"]
+                if h.get("data_used"):
+                    meta_parts.append(f"Data: {h['data_used']}")
+                hook_cols[1].caption(" | ".join(meta_parts))
 
-            # Select button
-            if hook_cols[2].button(
-                "Use This",
-                key=f"hook_{i}",
-                type="primary" if i == 0 else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state.selected_hook = h
-                st.session_state.step = 5
-                st.rerun()
+                # Select button — picking a hook triggers slide generation
+                if hook_cols[2].button(
+                    "Use This",
+                    key=f"hook_{i}",
+                    type="primary" if i == 0 else "secondary",
+                    use_container_width=True,
+                ):
+                    st.session_state.selected_hook = h
+                    st.rerun()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# STEP 5: Generate & Verify Slides (verification dashboard)
-# ══════════════════════════════════════════════════════════════════════════════
+    # ── Hook selected → generate slides (or show existing) ────────────────
+    if st.session_state.selected_hook:
+        hook = st.session_state.selected_hook
 
-elif st.session_state.step == 5:
-    st.header("Step 5: Generating Slides")
-    topic = st.session_state.selected_topic
-    angle = st.session_state.angle
-    hook = st.session_state.selected_hook
-    bullets = st.session_state.verified_bullets
-    research_text = st.session_state.research_text
-
-    st.info(
-        f"**Topic:** {topic['title']}  \n"
-        f"**Hook:** {hook['hook']}  \n"
-        f"**Data points:** {len(bullets)} verified"
-    )
+        st.info(
+            f"**Hook:** {hook['hook']}  \n"
+            f"**Data points:** {len(bullets)} verified"
+        )
 
     # If slides already exist (navigated back), show summary
     if st.session_state.slides:
@@ -2555,6 +2550,13 @@ elif st.session_state.step == 6:
     # ── Back to edit hook/regenerate ───────────────────────────────────────
     st.divider()
     if st.button("Back to Hook Selection"):
+        # Clear hook + slides so user returns to hook picker
+        st.session_state.selected_hook = None
+        st.session_state.slides = []
+        st.session_state.fact_check_report = []
+        st.session_state.conclusion_report = None
+        st.session_state.coherence_report = None
+        st.session_state.tiktok_metadata = None
         # Free large Studio data (images, video, alternatives) to reclaim memory
         for key in ["ai_image_paths", "ai_image_prompts", "ai_overlay_prompts",
                      "png_paths", "pptx_path", "mcp_alternatives",
