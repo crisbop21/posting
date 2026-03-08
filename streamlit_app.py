@@ -41,9 +41,6 @@ from src.content.generator import (
     generate_image_prompts,
     generate_video_script,
     regenerate_video_script,
-    generate_tiktok_script_hooks,
-    generate_tiktok_script,
-    regenerate_tiktok_script,
     generate_image_search_queries,
     generate_overlay_prompts,
     analyze_charts,
@@ -57,7 +54,6 @@ from src.slides.png_builder import build_style_alternatives
 from src.slides.video_builder import (
     build_video_with_searched_images,
     build_video_with_chart_overlays,
-    build_tiktok_video,
 )
 from src.slides.image_generator import (
     generate_slide_images,
@@ -512,10 +508,6 @@ for key, default in {
     "chart_image_paths": [],
     "chart_analyses": [],
     "chart_slide_mapping": [],
-    "tiktok_script_hooks": [],
-    "selected_tiktok_hook": None,
-    "tiktok_script": None,
-    "tiktok_video_path": None,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -1965,7 +1957,7 @@ elif st.session_state.step == 6:
                 )
 
     # ══════════════════════════════════════════════════════════════════════
-    # TAB: Video (Carousel Narration + TikTok Script, unified)
+    # TAB: Video (Carousel Narration)
     # ══════════════════════════════════════════════════════════════════════
 
     with studio_tabs[1]:
@@ -2288,9 +2280,7 @@ elif st.session_state.step == 6:
         for key in ["ai_image_paths", "ai_image_prompts", "ai_overlay_prompts",
                      "png_paths", "pptx_path", "mcp_alternatives",
                      "video_path", "video_scripts", "video_search_queries",
-                     "video_search_results", "video_build_error",
-                     "tiktok_script_hooks", "selected_tiktok_hook",
-                     "tiktok_script", "tiktok_video_path"]:
+                     "video_search_results", "video_build_error"]:
             if key in st.session_state:
                 st.session_state[key] = type(st.session_state[key])() if isinstance(st.session_state[key], (list, dict)) else None
         _read_file_bytes.clear()
