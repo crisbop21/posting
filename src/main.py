@@ -238,6 +238,10 @@ def run(config_path: str = "config.yaml") -> None:
     print(f"  Title: {metadata.get('title', '')}")
     print(f"  Description ({len(metadata.get('description', ''))} chars):")
     print(f"  {metadata.get('description', '')}")
+    if metadata.get("sound_mood"):
+        print(f"  Sound mood: {metadata['sound_mood']}")
+    if metadata.get("hook_keywords"):
+        print(f"  Hook keywords: {', '.join(metadata['hook_keywords'])}")
 
     # ── Build PPTX ─────────────────────────────────────────────────────
     print("\nBuilding PPTX...")
