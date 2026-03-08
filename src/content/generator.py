@@ -66,6 +66,83 @@ HOOK RULES (best practices for engagement):
 - Pair with visual direction: suggest a bold text overlay style, contrasting colors, or a surprising visual cue.
 """
 
+TIKTOK_SCRIPT_HOOK_FRAMEWORKS = """
+8 HOOK FRAMEWORKS FOR TIKTOK VIDEO SCRIPTS (8 words or fewer):
+
+1. PATTERN INTERRUPT: "[Specific entity] is lying to you."
+   Why it works: names a specific actor and creates immediate distrust/curiosity.
+   Example: "BlackRock is lying to you."
+
+2. NUMBER PUNCH: "$[X] [unit] just [vanished/moved/shifted]."
+   Why it works: a concrete dollar figure or percentage grabs attention instantly.
+   Example: "$4 trillion just left the bond market."
+
+3. CONTRARIAN SLAP: "Stop buying [specific popular thing]."
+   Why it works: attacks a common behavior with a direct command.
+   Example: "Stop buying the S&P 500."
+
+4. INSIDER REVEAL: "[Authority figure] just [specific action]."
+   Why it works: borrows credibility from a known name and implies urgency.
+   Example: "Warren Buffett just sold Apple."
+
+5. TIME BOMB: "[X] days until [specific event]."
+   Why it works: creates countdown urgency around a verifiable date.
+   Example: "90 days until the Fed breaks something."
+
+6. DEAD WRONG: "Wall Street got [topic] wrong."
+   Why it works: positions the viewer against the establishment.
+   Example: "Wall Street got inflation wrong."
+
+7. SHAME HOOK: "Your 401k is bleeding money."
+   Why it works: personal financial pain creates immediate emotional response.
+   Example: "Your savings account is losing $200/month."
+
+8. VERSUS FRAME: "[Thing A] vs [Thing B]. One wins."
+   Why it works: binary framing is irresistible to scroll-stoppers.
+   Example: "VOO vs SCHD. One wins."
+"""
+
+TIKTOK_SCRIPT_RULES = """
+TIKTOK VIDEO SCRIPT RULES (strict, follow exactly):
+
+WORD COUNT:
+- Minimum 130 words per script. Maximum 160 words.
+- If the script is under 130 or over 160 words, rewrite until it fits.
+
+STRUCTURE:
+- Hook (first line): 8 words or fewer. Must follow one of the 8 hook frameworks.
+- Body: Single argument. ONE thesis, supported by 2-3 concrete data points.
+- CTA (last line): ONE action only. Never two. ("Follow for the next breakdown." not "Follow and comment and save.")
+
+CONCRETE NOUN RULE:
+- Every sentence MUST contain at least one concrete noun: a company name, a ticker symbol,
+  a fund name (VOO, SCHD, QQQ), a country, a person, a dollar amount, or a specific percentage.
+- Sentences without a concrete noun are forbidden. Rewrite them.
+
+ABSTRACT NOUN LIMIT:
+- Maximum 2 abstract nouns per ENTIRE script. Abstract nouns include: market, economy,
+  growth, value, volatility, momentum, sentiment, opportunity, risk.
+- Each abstract noun MUST have a specific qualifier (e.g., "the bond market" not "the market",
+  "GDP growth in Q3" not "growth").
+
+ONE ARGUMENT RULE:
+- The script must make ONE argument. If it contains "and also", "another thing", or
+  shifts to a second thesis, it has two arguments. Cut one.
+- Test: can you summarize the script in one sentence? If not, it has too many arguments.
+
+BRAND VOICE:
+- You are the analyst who actually explains it. Direct. Specific. Zero hedging.
+- No jargon without translation. If you use "P/E ratio", follow it with what it means.
+- No filler: "let me explain", "here's the thing", "listen up" = banned.
+- No hedging: "might", "could potentially", "it's possible" = banned. State the claim.
+- Speak in declarative sentences. The viewer came for answers, not maybes.
+
+FACTUAL ACCURACY (overrides all other rules):
+- ONLY use numbers, percentages, and dollar amounts from verified research data.
+- NEVER fabricate a statistic. If no number is available, use directional language
+  with a concrete entity ("Tesla's revenue is climbing" not "revenue is climbing").
+"""
+
 SLIDE_RULES = """
 SLIDE RULES (strict, follow exactly):
 - Maximum 6 to 8 slides per carousel.
@@ -1864,6 +1941,209 @@ Return ONLY the JSON array, no other text."""
 
     # Fallback: return current scripts unchanged
     return current_scripts
+
+
+def generate_tiktok_script_hooks(
+    topic: str,
+    verified_bullets: list[dict],
+    angle: str = "",
+) -> list[dict]:
+    """Generate 8 hook options for a TikTok video script (one per framework).
+
+    Each hook is 8 words or fewer, grounded in verified data.
+
+    Returns a list of dicts with keys: hook, framework, fit_score, data_used.
+    """
+    bullets_text = "\n".join(
+        f"- {b['bullet']} (source: {b.get('source', 'unknown')}, confidence: {b.get('confidence', 'medium')})"
+        for b in verified_bullets
+    )
+    angle_block = f"\nUser's angle: {angle}\n" if angle else ""
+
+    prompt = f"""You are a senior financial content strategist for a faceless TikTok finance channel.
+Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging.
+
+Topic: {topic}
+{angle_block}
+VERIFIED DATA AVAILABLE (use ONLY these numbers in your hooks):
+{bullets_text}
+
+{TIKTOK_SCRIPT_HOOK_FRAMEWORKS}
+
+Generate exactly 8 hook options, one per framework above.
+Every hook MUST be 8 words or fewer. Count the words. If it exceeds 8, cut words.
+Every hook MUST contain at least one concrete noun (company name, ticker, fund name, country, person, dollar amount, or percentage).
+Every hook MUST use ONLY numbers from the VERIFIED DATA above. If a framework needs a number that isn't available, use directional language with a specific entity name.
+NEVER fabricate a price, percentage, or statistic.
+
+Return your response as a JSON array of 8 objects, each with:
+- "hook": The hook text (8 words or fewer)
+- "framework": The framework name (e.g. "Pattern Interrupt", "Number Punch", etc.)
+- "fit_score": 1-10 rating of how well this framework fits the available data (10 = perfect fit)
+- "data_used": which verified bullet(s) this hook references
+
+Return ONLY the JSON array, no other text. Sort by fit_score descending (best fit first)."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+def generate_tiktok_script(
+    topic: str,
+    hook: str,
+    hook_framework: str,
+    verified_bullets: list[dict],
+    angle: str = "",
+) -> dict:
+    """Generate a complete TikTok video script (130-160 words) from a chosen hook.
+
+    Args:
+        topic: Topic title.
+        hook: The chosen hook text (8 words or fewer).
+        hook_framework: Which framework the hook uses.
+        verified_bullets: Verified data bullets from consolidate_topic_data.
+        angle: Optional user-provided angle.
+
+    Returns a dict with keys: hook, body, cta, full_script, word_count,
+    concrete_nouns, abstract_nouns, argument_summary.
+    """
+    bullets_text = "\n".join(
+        f"- {b['bullet']} (source: {b.get('source', 'unknown')}, confidence: {b.get('confidence', 'medium')})"
+        for b in verified_bullets
+    )
+    angle_block = f"\nAngle: {angle}\n" if angle else ""
+
+    prompt = f"""You are a senior financial content strategist and scriptwriter for a faceless TikTok finance channel.
+Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging. No jargon without translation.
+
+TARGET AUDIENCE:
+Primary: Young professionals aged 27-38, earning $60k-$150k. Have a 401k and maybe a brokerage account they rarely touch.
+Secondary: 22-26 year olds with almost no stock knowledge but curious about money and geopolitics.
+
+Topic: {topic}
+{angle_block}
+Chosen hook: "{hook}" (framework: {hook_framework})
+
+VERIFIED DATA AVAILABLE (use ONLY these facts and numbers):
+{bullets_text}
+
+{TIKTOK_SCRIPT_RULES}
+
+Write a complete TikTok video script. The script has three parts:
+
+1. HOOK (first line): Use the chosen hook exactly as provided: "{hook}"
+2. BODY: Build ONE argument using 2-3 data points from the verified data. Explain each data point in plain language. Every sentence must contain a concrete noun. Maximum 2 abstract nouns in the entire body, each with a specific qualifier.
+3. CTA (last line): ONE action. Examples: "Follow for the next breakdown." or "Save this before your next portfolio check."
+
+VALIDATION CHECKLIST (apply before returning):
+- [ ] Total word count is 130-160 words (count carefully)
+- [ ] Every sentence has at least one concrete noun
+- [ ] No more than 2 abstract nouns in the entire script
+- [ ] Each abstract noun has a specific qualifier
+- [ ] Only ONE argument is made
+- [ ] CTA contains exactly ONE action
+- [ ] No fabricated numbers — all stats come from verified data
+- [ ] No hedging words (might, could, potentially, possibly)
+- [ ] No filler phrases (let me explain, here's the thing, listen up)
+
+Return your response as JSON:
+{{
+  "hook": "the hook line (8 words or fewer)",
+  "body": "the body text (the main argument, multiple sentences)",
+  "cta": "the CTA line (one action)",
+  "full_script": "hook + body + cta combined as one flowing script",
+  "word_count": <integer>,
+  "concrete_nouns": ["list", "of", "concrete", "nouns", "used"],
+  "abstract_nouns": ["list of abstract nouns used, max 2"],
+  "argument_summary": "one sentence summary of the single argument"
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
+
+
+def regenerate_tiktok_script(
+    topic: str,
+    hook: str,
+    hook_framework: str,
+    current_script: dict,
+    feedback: str,
+    verified_bullets: list[dict],
+    angle: str = "",
+) -> dict:
+    """Regenerate a TikTok video script incorporating user feedback.
+
+    Same return format as generate_tiktok_script.
+    """
+    bullets_text = "\n".join(
+        f"- {b['bullet']} (source: {b.get('source', 'unknown')}, confidence: {b.get('confidence', 'medium')})"
+        for b in verified_bullets
+    )
+
+    prompt = f"""You are a senior financial content strategist and scriptwriter for a faceless TikTok finance channel.
+Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging.
+
+Topic: {topic}
+Hook: "{hook}" (framework: {hook_framework})
+
+VERIFIED DATA:
+{bullets_text}
+
+CURRENT SCRIPT:
+{json.dumps(current_script, indent=2)}
+
+USER FEEDBACK:
+{feedback}
+
+{TIKTOK_SCRIPT_RULES}
+
+Rewrite the script incorporating the user's feedback. Keep the same hook unless the feedback explicitly asks to change it.
+
+VALIDATION CHECKLIST:
+- [ ] Total word count is 130-160 words
+- [ ] Every sentence has at least one concrete noun
+- [ ] No more than 2 abstract nouns in the entire script
+- [ ] Only ONE argument
+- [ ] CTA contains exactly ONE action
+- [ ] No fabricated numbers
+- [ ] No hedging words or filler phrases
+
+Return your response as JSON:
+{{
+  "hook": "the hook line",
+  "body": "the body text",
+  "cta": "the CTA line",
+  "full_script": "hook + body + cta combined",
+  "word_count": <integer>,
+  "concrete_nouns": ["list of concrete nouns"],
+  "abstract_nouns": ["max 2 abstract nouns"],
+  "argument_summary": "one sentence summary"
+}}
+
+Return ONLY the JSON, no other text."""
+
+    response = create_message(
+        model="claude-sonnet-4-20250514",
+        max_tokens=2048,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    text = _extract_text(response)
+    return _parse_json(text)
 
 
 def generate_tiktok_metadata(
