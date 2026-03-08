@@ -62,6 +62,13 @@ def create_message(*, model: str, max_tokens: int, messages: list, **kwargs):
             last_error = exc
             _backoff(attempt)
             continue
+        except anthropic.APIStatusError as exc:
+            # 529 = overloaded, retry with backoff
+            last_error = exc
+            if exc.status_code == 529:
+                _backoff(attempt)
+                continue
+            raise
         finally:
             # Explicitly close the underlying HTTP transport so connections
             # and any cached state are released immediately.
