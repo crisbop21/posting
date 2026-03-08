@@ -1531,8 +1531,8 @@ elif st.session_state.step == 6:
         "highlight": highlight_color,
     }
 
-    # Build tab list
-    tab_labels = ["Edit", "Slides", "AI Images", "Video"]
+    # Build tab list (Video-first: most common output right after editing)
+    tab_labels = ["Edit", "Video", "AI Images", "Slides"]
     studio_tabs = st.tabs(tab_labels)
 
     # ══════════════════════════════════════════════════════════════════════
@@ -1663,7 +1663,7 @@ elif st.session_state.step == 6:
     # TAB: Slides (PPTX + PNG + Alternatives)
     # ══════════════════════════════════════════════════════════════════════
 
-    with studio_tabs[1]:
+    with studio_tabs[3]:
         st.subheader("Export Carousel Slides")
         st.caption("Build static slide decks as PowerPoint or PNG images.")
 
@@ -1968,7 +1968,7 @@ elif st.session_state.step == 6:
     # TAB: Video (Carousel Narration + TikTok Script, unified)
     # ══════════════════════════════════════════════════════════════════════
 
-    with studio_tabs[3]:
+    with studio_tabs[1]:
         # ── Mode selector ─────────────────────────────────────────────
         video_mode = st.radio(
             "Video type",
