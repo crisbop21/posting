@@ -207,6 +207,13 @@ def _extract_visual_cues(
 
     # --- Collect candidate cue times ---
 
+    # [beat] markers → explicit sync points from the script writer
+    beat_times = set()
+    for m in re.finditer(r'\[beat\]', script, re.IGNORECASE):
+        pos = m.start()
+        if pos < len(char_starts):
+            beat_times.add(char_starts[pos])
+
     # Stats/numbers → ideal moments for overlay cards
     stat_times = set()
     for m in _STAT_RE.finditer(script):
@@ -220,6 +227,10 @@ def _extract_visual_cues(
         pos = m.start()
         if pos < len(char_ends):
             sentence_times.add(char_ends[pos])
+
+    # Beat markers are high-priority cues — merge them into stat_times
+    # so they trigger overlay card pop-ins and SFX
+    stat_times |= beat_times
 
     # Merge, sort, and filter: enforce min gap, avoid extreme start/end
     all_cues = sorted(stat_times | sentence_times)
@@ -633,6 +644,34 @@ def _generate_reveal_sfx(path, sample_rate=44100):
     noise = rng.randn(n) * 0.04 * np.exp(-t * 40)
 
     signal = chime + bass + noise
+    _write_wav(path, signal, sample_rate)
+
+
+def _generate_beat_impact_sfx(path, sample_rate=44100):
+    """Generate a dramatic beat-drop impact for [beat] sync points.
+
+    Deeper and punchier than the reveal SFX — designed to sync with
+    key data reveals marked with [beat] in voiceover scripts. Combines
+    a low-frequency impact hit with a short reverse-cymbal swell.
+    """
+    import numpy as np
+
+    duration = 0.40
+    n = int(sample_rate * duration)
+    t = np.linspace(0, duration, n)
+
+    # Deep impact hit — sub-bass with fast attack
+    impact = np.sin(2 * np.pi * 60 * t) * 0.20 * np.exp(-t * 14)
+
+    # Mid-frequency punch for presence
+    punch = np.sin(2 * np.pi * 250 * t) * 0.12 * np.exp(-t * 20)
+
+    # Short reverse-swell noise (builds into the hit)
+    rng = np.random.RandomState(99)
+    swell_env = np.clip(t / 0.08, 0, 1) * np.exp(-np.clip(t - 0.08, 0, None) * 15)
+    swell = rng.randn(n) * 0.06 * swell_env
+
+    signal = impact + punch + swell
     _write_wav(path, signal, sample_rate)
 
 
@@ -1595,9 +1634,11 @@ def build_video_with_searched_images(
         pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
         whoosh_sfx_path = os.path.join(tmp_dir, "sfx_whoosh.wav")
         reveal_sfx_path = os.path.join(tmp_dir, "sfx_reveal.wav")
+        beat_sfx_path = os.path.join(tmp_dir, "sfx_beat.wav")
         _generate_pop_sfx(pop_sfx_path)
         _generate_whoosh_sfx(whoosh_sfx_path)
         _generate_reveal_sfx(reveal_sfx_path)
+        _generate_beat_impact_sfx(beat_sfx_path)
 
         slide_clips = []
 
@@ -1744,6 +1785,15 @@ def build_video_with_searched_images(
                     if 0 < eo_t < duration - 0.3:
                         sfx = AudioFileClip(pop_sfx_path).with_start(eo_t)
                         audio_parts.append(sfx)
+
+                # Beat impact SFX on [beat] markers in the script
+                for bm in re.finditer(r'\[beat\]', script, re.IGNORECASE):
+                    bpos = bm.start()
+                    if bpos < len(char_starts) and char_starts:
+                        bt = char_starts[bpos]
+                        if 0.2 < bt < duration - 0.3:
+                            sfx = AudioFileClip(beat_sfx_path).with_start(bt)
+                            audio_parts.append(sfx)
 
                 if len(audio_parts) > 1:
                     mixed_audio = CompositeAudioClip(audio_parts)
@@ -2147,9 +2197,11 @@ def build_video_with_chart_overlays(
         pop_sfx_path = os.path.join(tmp_dir, "sfx_pop.wav")
         whoosh_sfx_path = os.path.join(tmp_dir, "sfx_whoosh.wav")
         reveal_sfx_path = os.path.join(tmp_dir, "sfx_reveal.wav")
+        beat_sfx_path = os.path.join(tmp_dir, "sfx_beat.wav")
         _generate_pop_sfx(pop_sfx_path)
         _generate_whoosh_sfx(whoosh_sfx_path)
         _generate_reveal_sfx(reveal_sfx_path)
+        _generate_beat_impact_sfx(beat_sfx_path)
 
         slide_clips = []
 

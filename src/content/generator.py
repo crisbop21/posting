@@ -41,7 +41,7 @@ TOP 10 HOOK FORMULAS (use these structural templates):
 
 HOOK_RULES = """
 HOOK RULES (best practices for engagement):
-- If a specific number, percentage, or dollar amount is available from the topic/angle, USE IT. Concrete data outperforms vague claims
+- If a specific number, percentage, or dollar amount is available from the topic/angle, USE IT. Concrete data outperforms vague claims. Data-backed hooks get 35% higher engagement than emotion-only hooks.
 - If NO verified number is available, use directional language ("surging", "at record levels", "plummeting"). Do NOT invent a number
 - Use "you/your" direct address to make it personal
 - Keep hooks 11 to 18 words, long enough for substance, short enough to scan
@@ -50,6 +50,14 @@ HOOK RULES (best practices for engagement):
 - NEVER use generic hype language ("this stock went up 800%")
 - ALWAYS create an "open loop" that promises a specific reveal
 - Accuracy over impact: a vague but truthful hook is ALWAYS better than a specific but wrong one
+
+3-SECOND RULE (critical for TikTok):
+- The first 3 seconds determine 71% of whether users keep watching or scroll past.
+- 63% of highest-CTR TikToks hook within the first 3 seconds.
+- Videos with strong 3-second retention (above 65%) get 4-7x more impressions.
+- The hook text MUST be readable in under 3 seconds when displayed on screen.
+- Use pattern interrupt language: challenge assumptions, reveal contradictions, or open with proof.
+- Pair with visual direction: suggest a bold text overlay style, contrasting colors, or a surprising visual cue.
 """
 
 SLIDE_RULES = """
@@ -81,6 +89,18 @@ STORYTELLING (critical):
 - The verdict slide should feel like a satisfying conclusion to the story, not a random opinion.
 - If the available facts don't fit the standard structure, CHANGE THE STRUCTURE to fit the facts.
   Never force facts into a structure that makes the story feel disconnected.
+- Use storytelling frameworks where they fit: "Problem → Cause → Fix", "Myth → Test → Truth",
+  or "Result First → Steps → Mistakes to Avoid".
+
+VISUAL ATTENTION (slide design hints):
+- For each slide, include a "visual_hint" field with a brief direction for the visual design.
+- Slide 1 (Hook): suggest a pattern-interrupt visual — bold contrasting text, unexpected color pop,
+  or a surprising image that stops the scroll. This is the most important slide visually.
+- Data slides: suggest visual emphasis for the key number or comparison (e.g. "highlight the percentage
+  in accent color", "use a before/after split layout").
+- CTA slide: suggest a clean, inviting layout that draws the eye to the question.
+- Text overlays must be readable in under 3 seconds per slide. Use bold, high-contrast fonts.
+- Many viewers watch with sound off initially — the visual must carry the message standalone.
 
 FACTUAL ACCURACY (overrides all other rules):
 - Accuracy always beats specificity. A slide with directional language is better than one with a wrong number.
@@ -1724,11 +1744,21 @@ STRUCTURE & PACING:
 4. Last slide (CTA): End with a specific, natural call to action. Don't just say "follow" — give them a reason. Example: "Follow for the next breakdown" or "Comment which one surprised you most."
 5. The script must flow as one continuous story across all slides — each slide should feel like the next logical beat.
 
+3-SECOND HOOK RULE (critical for TikTok retention):
+6. The FIRST sentence of slide 1 MUST be deliverable in under 3 seconds (~8-12 words max). This is the audio hook.
+7. Front-load the most surprising or compelling word in that first sentence. The brain decides to stay or scroll in this window.
+8. After the audio hook, add a brief beat ("...") before the follow-up. This creates anticipation.
+
 TONE & DELIVERY:
-6. Sound like a sharp analyst briefing a friend, not a textbook or a hype influencer.
-7. Use power words that create urgency: "quietly", "just happened", "most people missed", "here's the catch".
-8. Include natural speech markers for TTS: brief pauses (use "..."), rhetorical questions, emphasis through repetition.
-9. Vary your openings — don't start every slide the same way. Mix statements, questions, and "here's why" transitions.
+9. Sound like a sharp analyst briefing a friend, not a textbook or a hype influencer.
+10. Use power words that create urgency: "quietly", "just happened", "most people missed", "here's the catch".
+11. Include natural speech markers for TTS: brief pauses (use "..."), rhetorical questions, emphasis through repetition.
+12. Vary your openings — don't start every slide the same way. Mix statements, questions, and "here's why" transitions.
+
+SOUND-VISUAL SYNC CUES:
+13. When mentioning a key number or reveal, add "[beat]" before it so the video builder can sync a sound effect. Example: "and the result? [beat] a 40% drop."
+14. Use rhythm — short-long-short sentence patterns create natural audio interest that keeps viewers engaged.
+15. 88% of TikTok users say sound is vital to their experience. Write scripts that sound compelling even without visuals.
 
 FACTUAL ACCURACY (NON-NEGOTIABLE):
 10. ONLY use numbers, percentages, prices, and statistics that appear in the slide content. NEVER invent or estimate data.
@@ -1863,10 +1893,20 @@ Generate a TikTok carousel post package:
    - Ends with this exact disclaimer: "views are my own, not my employer's. educational content only, not financial advice."
    - MUST be 200+ characters total (TikTok carousel SEO requirement)
 
+3. SOUND_MOOD: Suggest a sound mood/style that would complement this content.
+   Choose from: "dramatic_reveal", "urgent_news", "chill_explainer", "hype_energy", "suspenseful".
+   This helps the creator pick a matching trending sound on TikTok.
+
+4. HOOK_KEYWORDS: 3-5 SEO keywords to include in the on-screen text overlay of slide 1.
+   TikTok's algorithm reads on-screen text for discoverability — place keywords in hook text,
+   voiceover, AND caption for maximum SEO reach.
+
 Return your response as JSON:
 {{
   "title": "the video title",
-  "description": "the full description with hashtags and disclaimer"
+  "description": "the full description with hashtags and disclaimer",
+  "sound_mood": "one of the mood options above",
+  "hook_keywords": ["keyword1", "keyword2", "keyword3"]
 }}
 
 Return ONLY the JSON, no other text."""
