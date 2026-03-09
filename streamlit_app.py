@@ -1362,7 +1362,7 @@ elif st.session_state.step == 4:
                 placeholders[2].markdown("🔄 **Layered fact-check** — _Verifying claims..._")
                 fc_result = layered_fact_check(
                     slides, research_text, bullets,
-                    topic["title"], angle or topic["description"],
+                    topic["title"], st.session_state.get("angle", "") or topic["description"],
                 )
                 if not isinstance(fc_result, dict):
                     fc_result = {"corrected_slides": slides}
@@ -1393,7 +1393,7 @@ elif st.session_state.step == 4:
             placeholders[3].markdown("🔄 **Web verification** — _Cross-checking live data..._")
             try:
                 ws_result = web_search_fact_check(
-                    slides, topic["title"], angle or topic["description"],
+                    slides, topic["title"], st.session_state.get("angle", "") or topic["description"],
                 )
                 if not isinstance(ws_result, dict):
                     ws_result = {"corrected_slides": slides}
@@ -1425,7 +1425,7 @@ elif st.session_state.step == 4:
             placeholders[4].markdown("🔄 **Conclusion check** — _Validating logic..._")
             conclusion_result = validate_conclusion(
                 slides, bullets, topic["title"],
-                angle or topic["description"],
+                st.session_state.get("angle", "") or topic["description"],
             )
             if not isinstance(conclusion_result, dict):
                 conclusion_result = {"corrected_slides": slides}
@@ -1445,7 +1445,7 @@ elif st.session_state.step == 4:
             placeholders[5].markdown("🔄 **Coherence check** — _Analyzing narrative flow..._")
             coherence_result = check_narrative_coherence(
                 slides, topic["title"],
-                angle or topic["description"], hook_text,
+                st.session_state.get("angle", "") or topic["description"], hook_text,
             )
             if not isinstance(coherence_result, dict):
                 coherence_result = {"corrected_slides": slides}
