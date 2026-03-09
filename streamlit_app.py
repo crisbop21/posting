@@ -2047,6 +2047,9 @@ elif st.session_state.step == 6:
                         st.session_state.video_path = None
                         st.session_state.video_search_queries = []
                         st.session_state.video_search_results = {}
+                        # Clear cached text-area widget values so new scripts display
+                        for _i in range(len(scripts)):
+                            st.session_state.pop(f"script_edit_{_i}", None)
                     except Exception as exc:
                         st.error(f"Script generation failed: {exc}")
                 st.rerun()
@@ -2107,6 +2110,9 @@ elif st.session_state.step == 6:
                         st.session_state.video_path = None
                         st.session_state.video_search_queries = []
                         st.session_state.video_search_results = {}
+                        # Clear cached text-area widget values so new scripts display
+                        for _i in range(len(new_scripts)):
+                            st.session_state.pop(f"script_edit_{_i}", None)
                     except Exception as exc:
                         st.error(f"Script regeneration failed: {exc}")
                 st.rerun()
