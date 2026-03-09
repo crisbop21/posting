@@ -243,7 +243,7 @@ RESEARCH DATA (from news and social media):
 {research_text}
 
 PREVIOUSLY EXTRACTED FACTS:
-{json.dumps(research_facts, indent=2)}
+{json.dumps(research_facts)}
 
 {search_context}
 
@@ -320,7 +320,7 @@ WEB SEARCH RESULTS FOR THIS ANGLE:
 {search_context}
 
 EXISTING VERIFIED DATA (do not duplicate):
-{json.dumps(existing_bullets, indent=2)}
+{json.dumps(existing_bullets)}
 
 Find additional verifiable facts that support the angle "{angle}".
 Focus on specific numbers, dates, comparisons, and events.
@@ -767,7 +767,7 @@ def generate_slide_content(
     if research_facts:
         facts_block = f"""
 VERIFIED FACTS FROM RESEARCH (use these as your primary data source):
-{json.dumps(research_facts, indent=2)}
+{json.dumps(research_facts)}
 
 GROUNDING RULES:
 - ONLY use facts from the research above. Every data slide MUST reference at least one research fact.
@@ -871,7 +871,7 @@ Angle: {angle}
 Hook: {hook}
 
 Here are the current slides:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 Your job: ONE comprehensive pass that covers BOTH value AND narrative coherence.
 
@@ -947,7 +947,7 @@ Topic: {topic}
 Angle: {angle}
 
 Slides to fact-check:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 For EACH slide, do the following:
 1. Identify every factual claim (numbers, percentages, dollar amounts, dates, company names, events).
@@ -1017,10 +1017,10 @@ ORIGINAL RESEARCH TEXT (ground truth for Layer A):
 {research_text}
 
 EXTRACTED RESEARCH FACTS:
-{json.dumps(research_facts, indent=2)}
+{json.dumps(research_facts)}
 
 SLIDES TO FACT-CHECK:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 Perform TWO layers of fact-checking:
 
@@ -1107,10 +1107,10 @@ Topic: {topic}
 Angle: {angle}
 
 RESEARCH FACTS AVAILABLE:
-{json.dumps(research_facts, indent=2)}
+{json.dumps(research_facts)}
 
 SLIDES:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 Your job: Validate that the VERDICT / TAKEAWAY slide logically follows from the evidence in the preceding slides.
 
@@ -1181,7 +1181,7 @@ Angle: {angle}
 Hook: {hook}
 
 SLIDES:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 Your job: Ensure the slide deck tells a COHERENT STORY with the correct narrative arc.
 
@@ -1264,7 +1264,7 @@ def web_search_fact_check(
 A numerical claim is any statement with a specific price, percentage, dollar amount, date, or count.
 
 Slides:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 For each claim, also suggest a short web search query that would help verify it.
 
@@ -1304,7 +1304,7 @@ Topic: {topic}
 Angle: {angle}
 
 SLIDES TO FACT-CHECK:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 CURRENT WEB SEARCH RESULTS FOR EACH CLAIM:
 {search_context}
@@ -1410,8 +1410,8 @@ def generate_image_search_queries(
 
     Returns a list of search query strings, one per slide.
     """
-    slide_text = json.dumps(slides, indent=2)
-    scripts_text = json.dumps(scripts, indent=2)
+    slide_text = json.dumps(slides)
+    scripts_text = json.dumps(scripts)
     prompt = f"""You are an expert visual researcher finding stock photos and editorial images for a short-form finance video.
 
 Topic: {topic or 'finance'}
@@ -1470,7 +1470,7 @@ def generate_image_prompts(
     one per slide. Each prompt describes a visually striking,
     finance-themed scene that matches the slide content.
     """
-    slide_text = json.dumps(slides, indent=2)
+    slide_text = json.dumps(slides)
     prompt = f"""You are an expert visual director creating image prompts for AI image generation.
 
 Topic: {topic or 'finance'}
@@ -1552,7 +1552,7 @@ def generate_per_sentence_image_prompts(
             sentences = [script.strip()]
         slide_sentences.append(sentences)
 
-    slides_text = json.dumps(slides, indent=2)
+    slides_text = json.dumps(slides)
     sentences_text = json.dumps(
         {f"slide_{i+1}": sents for i, sents in enumerate(slide_sentences)},
         indent=2,
@@ -1686,7 +1686,7 @@ def generate_overlay_prompts(
         List of lists — each inner list contains one overlay prompt per
         sentence in the slide body, so overlays transition with narration.
     """
-    slide_text = json.dumps(slides, indent=2)
+    slide_text = json.dumps(slides)
 
     style_context = ""
     if overlay_style != "auto" and overlay_style in OVERLAY_STYLE_DESCRIPTIONS:
@@ -1698,7 +1698,7 @@ Description: {OVERLAY_STYLE_DESCRIPTIONS[overlay_style]}
     else:
         style_context = f"""
 Available cinematic styles (choose the best one per slide):
-{json.dumps(OVERLAY_STYLE_DESCRIPTIONS, indent=2)}
+{json.dumps(OVERLAY_STYLE_DESCRIPTIONS)}
 
 Match the style to each slide's mood:
 - Hook slides (slide 1): Use dramatic styles (volumetric_light, light_leak, neon_glow) for maximum visual impact in the first 0.3 seconds
@@ -1804,7 +1804,7 @@ def generate_video_script(
     conversational, 2-3 sentences, and designed to be read aloud by a TTS
     engine while the viewer looks at the slide.
     """
-    slide_text = json.dumps(slides, indent=2)
+    slide_text = json.dumps(slides)
     prompt = f"""You are a senior financial content strategist and scriptwriter for a faceless TikTok finance channel.
 Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging. No jargon without translation.
 
@@ -1878,8 +1878,8 @@ def regenerate_video_script(
 
     Takes the current scripts and user feedback, returns improved scripts.
     """
-    slide_text = json.dumps(slides, indent=2)
-    scripts_text = json.dumps(current_scripts, indent=2)
+    slide_text = json.dumps(slides)
+    scripts_text = json.dumps(current_scripts)
     prompt = f"""You are a senior financial content strategist and scriptwriter for a faceless TikTok finance channel.
 Your brand voice is: "the analyst who actually explains it." Direct. Specific. Zero hedging. No jargon without translation.
 
@@ -2102,7 +2102,7 @@ VERIFIED DATA:
 {bullets_text}
 
 CURRENT SCRIPT:
-{json.dumps(current_script, indent=2)}
+{json.dumps(current_script)}
 
 USER FEEDBACK:
 {feedback}
@@ -2158,7 +2158,7 @@ Angle: {angle}
 Hook: {hook}
 
 Slides:
-{json.dumps(slides, indent=2)}
+{json.dumps(slides)}
 
 Generate a TikTok carousel post package:
 

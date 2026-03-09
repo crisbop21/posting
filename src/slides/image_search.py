@@ -239,9 +239,14 @@ def _dalle_fallback(
         width, height = target_size
         print(f"[image_search] DALL-E fallback for '{query}'")
         img_bytes = _generate_dalle(query, width, height, api_key)
-        img = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-        img = img.resize(target_size, Image.Resampling.LANCZOS)
-        return img
+        raw = Image.open(io.BytesIO(img_bytes))
+        converted = raw.convert("RGBA")
+        if converted is not raw:
+            raw.close()
+        resized = converted.resize(target_size, Image.Resampling.LANCZOS)
+        if resized is not converted:
+            converted.close()
+        return resized
     except Exception as exc:
         print(f"[image_search] DALL-E fallback failed for '{query}': {exc}")
         return None
@@ -329,10 +334,14 @@ def search_and_download_images(
         for result in search_results:
             img = download_image(result["url"])
             if img is not None:
-                # Resize to target dimensions
-                img = img.convert("RGBA")
-                img = img.resize(target_size, Image.Resampling.LANCZOS)
-                downloaded = img
+                # Resize to target dimensions; close intermediate copies
+                converted = img.convert("RGBA")
+                if converted is not img:
+                    img.close()
+                resized = converted.resize(target_size, Image.Resampling.LANCZOS)
+                if resized is not converted:
+                    converted.close()
+                downloaded = resized
                 print(f"[image_search] Slide {i + 1}: found image for '{query}'")
                 break
 
@@ -377,9 +386,13 @@ def search_and_download_all_images(
         for result in search_results:
             img = download_image(result["url"])
             if img is not None:
-                img = img.convert("RGBA")
-                img = img.resize(target_size, Image.Resampling.LANCZOS)
-                images.append(img)
+                converted = img.convert("RGBA")
+                if converted is not img:
+                    img.close()
+                resized = converted.resize(target_size, Image.Resampling.LANCZOS)
+                if resized is not converted:
+                    converted.close()
+                images.append(resized)
 
         if not images:
             fallback_img = _dalle_fallback(query, target_size)
@@ -446,18 +459,23 @@ def search_transparent_cutouts(
             if img is None:
                 continue
 
-            img = img.convert("RGBA")
+            converted = img.convert("RGBA")
+            if converted is not img:
+                img.close()
 
             # Check for actual transparency
-            if _has_transparency(img):
-                # Scale to target height, preserving aspect ratio
-                orig_w, orig_h = img.size
+            if _has_transparency(converted):
+                orig_w, orig_h = converted.size
                 scale = target_height / orig_h
                 new_w = int(orig_w * scale)
-                img = img.resize((new_w, target_height), Image.Resampling.LANCZOS)
-                downloaded = img
+                resized = converted.resize((new_w, target_height), Image.Resampling.LANCZOS)
+                if resized is not converted:
+                    converted.close()
+                downloaded = resized
                 print(f"[cutout_search] Slide {i + 1}: found cutout for '{query}'")
                 break
+            else:
+                converted.close()
 
         if downloaded is None:
             print(f"[cutout_search] Slide {i + 1}: no cutout found for '{query}'")
@@ -513,14 +531,19 @@ def search_entity_images(
             if img is None:
                 continue
 
-            img = img.convert("RGBA")
+            converted = img.convert("RGBA")
+            if converted is not img:
+                img.close()
 
             # Scale to target size, preserving aspect ratio, fit in square
-            orig_w, orig_h = img.size
+            orig_w, orig_h = converted.size
             scale = min(target_size / orig_w, target_size / orig_h)
             new_w = int(orig_w * scale)
             new_h = int(orig_h * scale)
-            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            resized = converted.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            if resized is not converted:
+                converted.close()
+            img = resized
 
             # Center on square transparent canvas
             canvas = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))

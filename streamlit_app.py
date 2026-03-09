@@ -443,7 +443,7 @@ def _get_live_slides() -> list[dict]:
     return live
 
 
-@st.cache_data
+@st.cache_data(max_entries=20, ttl=600)
 def _read_file_bytes(path: str, mtime: float) -> bytes:
     """Read file bytes, cached by path and modification time."""
     with open(path, "rb") as f:
@@ -455,7 +455,7 @@ def _cached_read(path: str) -> bytes:
     return _read_file_bytes(path, os.path.getmtime(path))
 
 
-@st.cache_data
+@st.cache_data(max_entries=5, ttl=600)
 def _build_zip_bytes(paths: tuple[str, ...], mtimes: tuple[float, ...]) -> bytes:
     """Build a ZIP archive in memory, cached by file paths and mtimes."""
     import zipfile
@@ -1492,6 +1492,10 @@ elif st.session_state.step == 4:
 
             st.session_state.slides = slides
             st.session_state.step = 6
+            # Free heavy research data no longer needed after slide generation
+            st.session_state.pop("research_text", None)
+            st.session_state.pop("chart_analyses", None)
+            gc.collect()
             st.rerun()
 
         except anthropic.AuthenticationError:

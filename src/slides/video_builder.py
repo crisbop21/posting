@@ -1744,9 +1744,14 @@ def build_video_with_searched_images(
             final.close()
             slide_visuals.append(("static", out_path))
             search_report[query] = "found (1 image, static)"
+            # Free cinematic overlays not needed for static slides
+            for co in slide_overlays:
+                co.close()
         else:
             slide_visuals.append(("static", fallback_pngs[i]))
             search_report[query] = "not_found"
+            for co in slide_overlays:
+                co.close()
 
         # Free source images after preparing this slide's visuals.
         # The treated_bgs/overlay/fg_prepared are still needed for video,
@@ -1905,6 +1910,8 @@ def build_video_with_searched_images(
                     fg.close()
                 for co in slide_overlays:
                     co.close()
+                del treated_bgs, overlay, fg_prepared, slide_overlays
+                gc.collect()
 
                 # Build audio: voiceover + SFX synced to visual events
                 if pre_roll > 0:
