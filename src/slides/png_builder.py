@@ -11,6 +11,7 @@ import random
 import re
 import textwrap
 from datetime import datetime
+from functools import lru_cache
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -29,53 +30,68 @@ _FALLBACK_PATHS = {
 }
 
 
+@lru_cache(maxsize=64)
+def _resolve_font_path(style: str) -> str | None:
+    """Resolve a font style to a filesystem path (cached).
+
+    Returns the path string, or None if only the PIL default is available.
+    """
+    # Try primary path
+    path = _FONT_PATHS.get(style, _FONT_PATHS["sans"])
+    if os.path.exists(path):
+        return path
+
+    # Try fallback path
+    path = _FALLBACK_PATHS.get(style, _FALLBACK_PATHS["sans"])
+    if os.path.exists(path):
+        return path
+
+    # Try common system font directories
+    _bold = "bold" in style.lower()
+    _serif = "serif" in style.lower() and "sans" not in style.lower()
+    search_dirs = [
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        os.path.expanduser("~/.local/share/fonts"),
+        os.path.expanduser("~/Library/Fonts"),
+        "/Library/Fonts",
+        "/System/Library/Fonts",
+        "C:\\Windows\\Fonts",
+    ]
+    for font_dir in search_dirs:
+        if not os.path.isdir(font_dir):
+            continue
+        for root, _dirs, files in os.walk(font_dir):
+            for f in files:
+                if not f.lower().endswith((".ttf", ".otf")):
+                    continue
+                fl = f.lower()
+                if _bold and "bold" not in fl:
+                    continue
+                if not _bold and "bold" in fl:
+                    continue
+                if _serif and "sans" in fl:
+                    continue
+                full = os.path.join(root, f)
+                try:
+                    ImageFont.truetype(full, 12)  # validate
+                    return full
+                except (OSError, IOError):
+                    continue
+    return None
+
+
+@lru_cache(maxsize=128)
 def _load_font(style: str, size: int) -> ImageFont.FreeTypeFont:
-    """Load a TrueType font with multi-level fallback.
+    """Load a TrueType font with multi-level fallback (cached).
 
     Tries: Liberation → DejaVu → any system TTF → PIL default.
     Never raises — always returns a usable font object.
     """
     try:
-        # Try primary path
-        path = _FONT_PATHS.get(style, _FONT_PATHS["sans"])
-        if os.path.exists(path):
+        path = _resolve_font_path(style)
+        if path:
             return ImageFont.truetype(path, size)
-
-        # Try fallback path
-        path = _FALLBACK_PATHS.get(style, _FALLBACK_PATHS["sans"])
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-
-        # Try common system font directories (macOS, Windows, Linux)
-        _bold = "bold" in style.lower()
-        _serif = "serif" in style.lower() and "sans" not in style.lower()
-        search_dirs = [
-            "/usr/share/fonts",
-            "/usr/local/share/fonts",
-            os.path.expanduser("~/.local/share/fonts"),
-            os.path.expanduser("~/Library/Fonts"),      # macOS user
-            "/Library/Fonts",                             # macOS system
-            "/System/Library/Fonts",                      # macOS system
-            "C:\\Windows\\Fonts",                         # Windows
-        ]
-        for font_dir in search_dirs:
-            if not os.path.isdir(font_dir):
-                continue
-            for root, _dirs, files in os.walk(font_dir):
-                for f in files:
-                    if not f.lower().endswith((".ttf", ".otf")):
-                        continue
-                    fl = f.lower()
-                    if _bold and "bold" not in fl:
-                        continue
-                    if not _bold and "bold" in fl:
-                        continue
-                    if _serif and "sans" in fl:
-                        continue
-                    try:
-                        return ImageFont.truetype(os.path.join(root, f), size)
-                    except (OSError, IOError):
-                        continue
     except Exception:
         pass
 
