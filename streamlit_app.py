@@ -2047,9 +2047,8 @@ elif st.session_state.step == 6:
                         st.session_state.video_path = None
                         st.session_state.video_search_queries = []
                         st.session_state.video_search_results = {}
-                        # Clear cached text-area widget values so new scripts display
-                        for _i in range(len(scripts)):
-                            st.session_state.pop(f"script_edit_{_i}", None)
+                        # Bump version to force new widget instances with updated values
+                        st.session_state["_script_version"] = st.session_state.get("_script_version", 0) + 1
                     except Exception as exc:
                         st.error(f"Script generation failed: {exc}")
                 st.rerun()
@@ -2062,6 +2061,7 @@ elif st.session_state.step == 6:
                 st.rerun()
 
         # Show editable script text areas
+        _script_ver = st.session_state.get("_script_version", 0)
         if st.session_state.video_scripts:
             st.caption("Edit the scripts below before building the video.")
             edited_scripts = []
@@ -2070,7 +2070,7 @@ elif st.session_state.step == 6:
                     f"Slide {i + 1}",
                     value=script,
                     height=80,
-                    key=f"script_edit_{i}",
+                    key=f"script_edit_{i}_v{_script_ver}",
                 )
                 edited_scripts.append(edited)
 
@@ -2110,9 +2110,8 @@ elif st.session_state.step == 6:
                         st.session_state.video_path = None
                         st.session_state.video_search_queries = []
                         st.session_state.video_search_results = {}
-                        # Clear cached text-area widget values so new scripts display
-                        for _i in range(len(new_scripts)):
-                            st.session_state.pop(f"script_edit_{_i}", None)
+                        # Bump version to force new widget instances with updated values
+                        st.session_state["_script_version"] = st.session_state.get("_script_version", 0) + 1
                     except Exception as exc:
                         st.error(f"Script regeneration failed: {exc}")
                 st.rerun()
