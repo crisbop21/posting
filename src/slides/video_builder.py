@@ -1903,6 +1903,7 @@ def build_video_with_searched_images(
                 )
 
                 # Free PIL images now — numpy arrays are held in the clip closure
+                has_fg = bool(fg_prepared)
                 for bg in treated_bgs:
                     bg.close()
                 overlay.close()
@@ -1919,7 +1920,7 @@ def build_video_with_searched_images(
                 audio_parts = [vo_clip]
 
                 # Reveal SFX when foreground image first appears
-                if fg_prepared:
+                if has_fg:
                     reveal_t = pre_roll + 0.05
                     sfx = AudioFileClip(reveal_sfx_path).with_start(reveal_t)
                     audio_parts.append(sfx)
