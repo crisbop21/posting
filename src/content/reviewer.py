@@ -1,9 +1,9 @@
 """Review and iteratively improve slide content for engagement using Claude."""
 
 import json
-import re
 
 from src.api import create_message
+from src.content.generator import _parse_json
 
 
 def review_and_improve(
@@ -139,10 +139,3 @@ Return ONLY the JSON, no other text."""
     return current_slides
 
 
-def _parse_json(text: str):
-    """Extract and parse JSON from a model response that may contain markdown fences."""
-    text = text.strip()
-    match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
-    if match:
-        text = match.group(1).strip()
-    return json.loads(text)
