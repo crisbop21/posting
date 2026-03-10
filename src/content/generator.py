@@ -676,7 +676,17 @@ Return ONLY the JSON array, no other text."""
     )
 
     text = _extract_text(response)
-    return _parse_json(text)
+    parsed = _parse_json(text)
+
+    # Validate: ensure each item is a dict with required keys.
+    # If the LLM returned plain strings, wrap them into the expected format.
+    validated = []
+    for item in parsed:
+        if isinstance(item, dict) and "title" in item:
+            validated.append(item)
+        elif isinstance(item, str):
+            validated.append({"title": item, "description": ""})
+    return validated
 
 
 def generate_hooks(
