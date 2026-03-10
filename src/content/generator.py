@@ -742,7 +742,15 @@ Return ONLY the JSON array, no other text. Sort by fit_score descending (best fi
     )
 
     text = _extract_text(response)
-    return _parse_json(text)
+    hooks = _parse_json(text)
+    # Normalise: if the LLM returned plain strings instead of objects, wrap them
+    normalised = []
+    for h in hooks:
+        if isinstance(h, str):
+            normalised.append({"hook": h, "style": "Unknown", "fit_score": 5, "data_used": ""})
+        elif isinstance(h, dict):
+            normalised.append(h)
+    return normalised or hooks
 
 
 def generate_slide_content(
