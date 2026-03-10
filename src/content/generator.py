@@ -2215,18 +2215,64 @@ def _parse_json(text: str):
     match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
     if match:
         text = match.group(1).strip()
+    # Strip any trailing text after the last ] or } (LLM commentary)
+    for end_char in ("]", "}"):
+        idx = text.rfind(end_char)
+        if idx != -1 and idx < len(text) - 1:
+            text = text[: idx + 1]
+            break
     try:
         return json.loads(text)
     except json.JSONDecodeError:
+        cleaned = text
         # Fix common LLM JSON issues: trailing commas before } or ]
-        cleaned = re.sub(r",\s*([}\]])", r"\1", text)
+        cleaned = re.sub(r",\s*([}\]])", r"\1", cleaned)
         # Fix unescaped newlines inside JSON string values
         cleaned = re.sub(
             r'(?<=": ")(.*?)(?=")',
             lambda m: m.group(0).replace("\n", "\\n"),
             cleaned,
         )
-        return json.loads(cleaned)
+        # Replace smart/curly quotes with straight quotes
+        cleaned = cleaned.replace("\u201c", '"').replace("\u201d", '"')
+        cleaned = cleaned.replace("\u2018", "'").replace("\u2019", "'")
+        # Replace en-dash/em-dash that may break inside values
+        cleaned = cleaned.replace("\u2013", "-").replace("\u2014", "-")
+        # Remove control characters (except \n, \r, \t) that break JSON
+        cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", cleaned)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Last resort: try to extract the JSON array/object structure
+            # by finding balanced brackets
+            for start_char, end_char in [("[", "]"), ("{", "}")]:
+                start = cleaned.find(start_char)
+                if start == -1:
+                    continue
+                depth = 0
+                in_string = False
+                escape = False
+                for i in range(start, len(cleaned)):
+                    c = cleaned[i]
+                    if escape:
+                        escape = False
+                        continue
+                    if c == "\\":
+                        escape = True
+                        continue
+                    if c == '"':
+                        in_string = not in_string
+                        continue
+                    if in_string:
+                        continue
+                    if c == start_char:
+                        depth += 1
+                    elif c == end_char:
+                        depth -= 1
+                        if depth == 0:
+                            return json.loads(cleaned[start : i + 1])
+            # If all recovery fails, raise with original text for debugging
+            raise
 
 
 def extract_entity_mentions(
